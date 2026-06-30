@@ -68,13 +68,13 @@ bench daytona doctor [--image <cu-image>] [--snapshot <name>] [--keep-sandbox]
 
 ### Daytona launcher (`bench daytona`)
 
-Standalone provisioning for autobrin-flue engagements **inside** a Daytona sandbox (topology A: agent-in-sandbox), mirroring the app repo's HTTP/SSE run flow:
+Standalone provisioning for autobrin-flue engagements **inside** a Daytona sandbox (topology A: agent-in-sandbox), mirroring the app repo's HTTP run flow:
 
 1. `daytona.create` from a computer-use-enabled `--image` or `--snapshot`
 2. Clone/build autobrin-flue at `--ref` (`staging` or `main` branch pins only)
 3. Ensure computer-use assets and inject env (`AUTOBRIN_COMPUTER_USE=daytona`, `CUA_SCREENSHOT_VISION_MODEL`, provider keys)
-4. Start `dist/server.mjs` in the sandbox and POST `/workflows/engagement` over SSE
-5. Stream events to the caller and tear down the sandbox (unless `--keep-sandbox`)
+4. Start `dist/server.mjs` in the sandbox and `POST /workflows/engagement` to admit the run (Flue returns `{"runId"}` immediately; this is an admission receipt, not a live stream)
+5. Wait for the run to finish by polling its Durable Streams run-event feed (`GET /runs/:runId`) and the `result.json` checkpoint AutoBrin writes to disk, then tear down the sandbox (unless `--keep-sandbox`)
 
 `bench daytona doctor` creates a sandbox and checks Toolbox loopback reachability (`http://127.0.0.1:2280/computeruse/status`) plus screenshot capture (`/computeruse/screenshot` returns a non-empty image) — that combination is the real signal that computer-use is usable. `cua-driver` CLI presence/daemon status is reported for visibility but is **informational only** and does not fail the doctor: some computer-use-capable images don't install `cua-driver` at all, and others install it without a running daemon or a `start` subcommand. See [superagent-ai/benchpress#4](https://github.com/superagent-ai/benchpress/issues/4).
 
@@ -101,6 +101,8 @@ Standalone provisioning for autobrin-flue engagements **inside** a Daytona sandb
 
 - **`GH_TOKEN` needs read access to `superagent-ai/autobrin-flue`.** See [Secrets](#secrets) below.
 
+Note: `GET /runs/:runId` only returns run events once the `engagement` workflow in autobrin-flue exports a Flue `runs` HTTP handler (see [superagent-ai/autobrin-flue#169](https://github.com/superagent-ai/autobrin-flue/issues/169)). Until then, the launcher logs a one-time notice and relies solely on the `result.json` checkpoint to detect completion.
+
 #### Repo-modality smoke test
 
 Requires `DAYTONA_API_KEY`, a computer-use image, and provider keys in your operator env file:
@@ -113,7 +115,7 @@ dotenvx run -f ~/.config/secrets/global.env -- npm run bench -- daytona run \
   --payload '{"modality":"repo","repo":"https://github.com/<owner>/<repo>.git","sha":"<vulnerable-sha>","contributors":3,"model":"kimi-azure/kimi-k2.6"}'
 ```
 
-Expect: sandbox created → autobrin-flue bootstrapped → engagement runs with computer-use env active → SSE streamed → sandbox deleted. No dependency on the app repo.
+Expect: sandbox created → autobrin-flue bootstrapped → engagement runs with computer-use env active → run events/checkpoint polled until completion → sandbox deleted. No dependency on the app repo.
 
 Webapp payloads are wired (`modality: "webapp"`, `target.url`) but end-to-end smoke requires autobrin-flue#157/#158.
 

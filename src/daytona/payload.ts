@@ -137,6 +137,19 @@ export function engagementWorkspaceDir(payload: EngagementPayload): string {
   return `${payload.workspaceRoot}/workspace`;
 }
 
+/**
+ * Path where AutoBrin writes its `result.json` checkpoint for this
+ * engagement. AutoBrin's `repo`/`model` modalities resolve `engagementRoot`
+ * straight from the payload's `workspaceRoot` (see the modality
+ * `prepareWorkspace` implementations and `src/workspace.ts` in
+ * autobrin-flue), so this must track `payload.workspaceRoot` rather than the
+ * launcher's own `BENCHPRESS_ROOT` default -- callers may override
+ * `workspaceRoot` away from that default.
+ */
+export function engagementResultPath(payload: EngagementPayload): string {
+  return `${payload.workspaceRoot}/result.json`;
+}
+
 export function defaultRepoWorkspace(payload: EngagementPayload): string {
   void payload;
   return WORKSPACE_DIR;
