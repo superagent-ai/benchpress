@@ -62,7 +62,37 @@ Small repo-modality lane scored by **fix-commit overlap** (external oracle, not 
 bench list
 bench run <benchmark> --contender <id> --model <model-id> [--flue-ref staging] [--task <id>]
 bench matrix --config config/matrix.example.jsonc
+bench daytona run --ref staging --image <cu-image> --vision-model <model> --payload '<json>' [--snapshot <name>] [--keep-sandbox]
+bench daytona doctor [--image <cu-image>] [--snapshot <name>] [--keep-sandbox]
 ```
+
+### Daytona launcher (`bench daytona`)
+
+Standalone provisioning for autobrin-flue engagements **inside** a Daytona sandbox (topology A: agent-in-sandbox), mirroring the app repo's HTTP/SSE run flow:
+
+1. `daytona.create` from a computer-use-enabled `--image` or `--snapshot`
+2. Clone/build autobrin-flue at `--ref` (`staging` or `main` branch pins only)
+3. Ensure computer-use assets and inject env (`AUTOBRIN_COMPUTER_USE=daytona`, `CUA_SCREENSHOT_VISION_MODEL`, provider keys)
+4. Start `dist/server.mjs` in the sandbox and POST `/workflows/engagement` over SSE
+5. Stream events to the caller and tear down the sandbox (unless `--keep-sandbox`)
+
+`bench daytona doctor` creates a sandbox and verifies `cua-driver status` plus `http://127.0.0.1:2280/computeruse/status`.
+
+#### Repo-modality smoke test
+
+Requires `DAYTONA_API_KEY`, a computer-use image, and provider keys in your operator env file:
+
+```bash
+dotenvx run -f ~/.config/secrets/global.env -- npm run bench -- daytona run \
+  --ref staging \
+  --image <daytona-computer-use-image-or-snapshot> \
+  --vision-model kimi-k2.6 \
+  --payload '{"modality":"repo","repo":"https://github.com/<owner>/<repo>.git","sha":"<vulnerable-sha>","contributors":3,"model":"kimi-azure/kimi-k2.6"}'
+```
+
+Expect: sandbox created → autobrin-flue bootstrapped → engagement runs with computer-use env active → SSE streamed → sandbox deleted. No dependency on the app repo.
+
+Webapp payloads are wired (`modality: "webapp"`, `target.url`) but end-to-end smoke requires autobrin-flue#157/#158.
 
 ## Output (gitignored)
 

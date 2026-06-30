@@ -13,12 +13,19 @@
     "test": "vitest run",
     "validate": "npm run typecheck && npm test"
   },
-  "keywords": ["benchmark", "security", "autobrin"],
+  "keywords": [
+    "benchmark",
+    "security",
+    "autobrin"
+  ],
   "license": "UNLICENSED",
   "devDependencies": {
     "@types/node": "^25.6.2",
     "tsx": "^4.21.0",
     "typescript": "^6.0.3",
     "vitest": "^4.1.6"
+  },
+  "dependencies": {
+    "@daytona/sdk": "^0.178.0"
   }
 }
