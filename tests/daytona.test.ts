@@ -237,7 +237,13 @@ describe('engagement run script wait loop (behavioral)', () => {
     });
   }
 
-  function fakeFlueServerScript(runsResponse: { status: number; headers: Record<string, string>; body: unknown }): string {
+  type RunsResponse = { status: number; headers: Record<string, string>; body: unknown };
+
+  // Accepts a sequence of responses for GET /runs/:runId so tests can model
+  // a stream that stays open across several polls (simulating a still-running
+  // engagement) before it eventually closes or emits run_end. Once the
+  // sequence is exhausted, the server keeps repeating the last entry.
+  function fakeFlueServerScript(runsResponses: RunsResponse[]): string {
     return [
       'import json',
       'import sys',
@@ -246,7 +252,8 @@ describe('engagement run script wait loop (behavioral)', () => {
       // Parse as JSON at runtime rather than splicing in a JS object literal:
       // JSON's `true`/`false`/`null` are not valid Python syntax on their own
       // (`True`/`False`/`None`), so this must round-trip through json.loads.
-      `RUNS_RESPONSE = json.loads(${JSON.stringify(JSON.stringify(runsResponse))})`,
+      `RUNS_RESPONSES = json.loads(${JSON.stringify(JSON.stringify(runsResponses))})`,
+      'runs_call_count = 0',
       '',
       'class Handler(BaseHTTPRequestHandler):',
       '    def log_message(self, *args):',
@@ -265,12 +272,16 @@ describe('engagement run script wait loop (behavioral)', () => {
       '        self.end_headers()',
       '',
       '    def do_GET(self):',
+      '        global runs_call_count',
       '        if self.path.startswith("/runs/run_test123"):',
-      '            body = json.dumps(RUNS_RESPONSE["body"]).encode("utf-8")',
-      '            self.send_response(RUNS_RESPONSE["status"])',
+      '            index = min(runs_call_count, len(RUNS_RESPONSES) - 1)',
+      '            runs_call_count += 1',
+      '            runs_response = RUNS_RESPONSES[index]',
+      '            body = json.dumps(runs_response["body"]).encode("utf-8")',
+      '            self.send_response(runs_response["status"])',
       '            self.send_header("Content-Type", "application/json")',
       '            self.send_header("Content-Length", str(len(body)))',
-      '            for key, value in RUNS_RESPONSE["headers"].items():',
+      '            for key, value in runs_response["headers"].items():',
       '                self.send_header(key, value)',
       '            self.end_headers()',
       '            self.wfile.write(body)',
@@ -287,21 +298,30 @@ describe('engagement run script wait loop (behavioral)', () => {
     ].join('\n');
   }
 
-  async function startFakeFlueServer(runsResponse: {
-    status: number;
-    headers?: Record<string, string>;
-    body: unknown;
-  }): Promise<number> {
+  async function startFakeFlueServerSequence(
+    runsResponses: Array<{ status: number; headers?: Record<string, string>; body: unknown }>,
+  ): Promise<number> {
     const dir = mkdtempSync(path.join(tmpdir(), 'benchpress-fake-flue-'));
     tmpDirs.push(dir);
     const serverPath = path.join(dir, 'server.py');
-    writeFileSync(serverPath, fakeFlueServerScript({ headers: {}, ...runsResponse }));
+    writeFileSync(
+      serverPath,
+      fakeFlueServerScript(runsResponses.map((response) => ({ headers: {}, ...response }))),
+    );
 
     const port = await findFreePort();
     const child = spawn('python3', [serverPath, String(port)], { stdio: 'ignore' });
     children.push(child);
     await waitForPortReachable(port, 10_000);
     return port;
+  }
+
+  async function startFakeFlueServer(runsResponse: {
+    status: number;
+    headers?: Record<string, string>;
+    body: unknown;
+  }): Promise<number> {
+    return startFakeFlueServerSequence([runsResponse]);
   }
 
   function waitForPortReachable(port: number, timeoutMs: number): Promise<void> {
@@ -344,6 +364,33 @@ describe('engagement run script wait loop (behavioral)', () => {
       timeout: 15_000,
     });
     return { exitCode: result.status, stdout: result.stdout, stderr: result.stderr };
+  }
+
+  // Async variant for tests that need to mutate the on-disk checkpoint while
+  // the wait loop is still running (spawnSync above blocks the test process
+  // itself, so it cannot interleave a delayed file write). Captures the exit
+  // timestamp inside the 'close' handler itself -- not when the caller later
+  // happens to await the result -- so callers can assert *when* the process
+  // actually exited relative to other events, not just that it eventually did.
+  function runWaitLoopAsync(script: string, port: number): Promise<{ exitCode: number | null; stdout: string; stderr: string; exitedAtMs: number }> {
+    const block = extractWaitLoopBlock(script);
+    const child = spawn('python3', ['-c', block], { env: { ...process.env, FLUE_PORT: String(port) } });
+    children.push(child);
+    let stdout = '';
+    let stderr = '';
+    child.stdout?.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString();
+    });
+    child.stderr?.on('data', (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
+    return new Promise((resolve) => {
+      child.once('close', (exitCode) => resolve({ exitCode, stdout, stderr, exitedAtMs: Date.now() }));
+    });
+  }
+
+  function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   it('succeeds via the result.json checkpoint when the stream closes without ever emitting run_end (Bugbot: stream-closed-skips-checkpoint)', async () => {
@@ -409,5 +456,86 @@ describe('engagement run script wait loop (behavioral)', () => {
     expect(stdout).toContain('benchpress_engagement_timeout');
     expect(stdout).toContain('benchpress_engagement_incomplete');
     expect(exitCode).toBe(1);
+  }, 20_000);
+
+  it('does not treat an in-flight "usage checkpoint" write as completion while the run-events stream is still open (regression: #8)', async () => {
+    // The on-disk checkpoint already says status "ok" for the entire run --
+    // AutoBrin writes this at every periodic usage checkpoint, long before
+    // cycle 1 (or even the lead) finishes. A correct wait loop must ignore
+    // it entirely while the live stream is still open and keep polling the
+    // stream itself instead.
+    const { payloadPath, resultPath } = writeTempPayloadAndResult({
+      status: 'ok',
+      stopReason: 'usage checkpoint',
+      cyclesCompleted: 0,
+    });
+
+    // The stream stays open (not closed, no run_end) for three polls --
+    // each carrying a distinguishable marker event -- before it finally
+    // closes with a genuine run_end. A loop that reads the checkpoint
+    // unconditionally (the bug) exits on the very first poll and never
+    // observes markers 2/3 or the run_end; the fixed loop must observe all
+    // of them in order before exiting.
+    const openMarker = (iteration: number) => ({
+      status: 200,
+      headers: { 'Stream-Next-Offset': `0_${iteration}` },
+      body: [{ type: 'benchpress_test_marker', iteration }],
+    });
+    const port = await startFakeFlueServerSequence([
+      openMarker(1),
+      openMarker(2),
+      openMarker(3),
+      {
+        status: 200,
+        headers: { 'Stream-Next-Offset': '0_4', 'Stream-Closed': 'true' },
+        body: [{ type: 'run_end', isError: false }],
+      },
+    ]);
+
+    const script = buildEngagementRunScript({ maxWaitSeconds: 10, pollIntervalSeconds: 0.2, resultPath, payloadPath });
+    const { exitCode, stdout } = runWaitLoop(script, port);
+
+    expect(stdout).toContain('"iteration": 1');
+    expect(stdout).toContain('"iteration": 2');
+    expect(stdout).toContain('"iteration": 3');
+    expect(stdout).toContain('"type": "run_end"');
+    expect(stdout).not.toContain('benchpress_engagement_incomplete');
+    expect(stdout).not.toContain('benchpress_engagement_timeout');
+    expect(exitCode).toBe(0);
+  }, 20_000);
+
+  it('treats a "usage checkpoint" stopReason as non-terminal even once the run-events stream is fully unavailable (regression: #8 extra safeguard)', async () => {
+    // No `runs` HTTP handler at all -- every GET 404s immediately, the
+    // pre-#169 scenario where the on-disk checkpoint is the *only*
+    // completion signal available, so the "stream still open" gate alone
+    // cannot protect against an intermediate checkpoint here.
+    const { payloadPath, resultPath } = writeTempPayloadAndResult({
+      status: 'ok',
+      stopReason: 'usage checkpoint',
+      cyclesCompleted: 0,
+    });
+    const port = await startFakeFlueServer({ status: 404, headers: {}, body: { error: { type: 'run_not_found' } } });
+
+    const script = buildEngagementRunScript({ maxWaitSeconds: 10, pollIntervalSeconds: 0.2, resultPath, payloadPath });
+    const resultPromise = runWaitLoopAsync(script, port);
+
+    // Give the loop several poll cycles to (incorrectly, if the safeguard
+    // were missing) settle on the intermediate "usage checkpoint" before a
+    // genuinely final result.json replaces it. The exit timestamp recorded
+    // inside runWaitLoopAsync's 'close' handler -- not this sleep -- is what
+    // proves whether the process was still alive when the write happened.
+    await sleep(700);
+    const writeAtMs = Date.now();
+    writeFileSync(resultPath, JSON.stringify({ status: 'ok', stopReason: 'maxCycles reached: 1 >= 1', cyclesCompleted: 1 }));
+
+    const { exitCode, stdout, exitedAtMs } = await resultPromise;
+
+    // A loop that misreads the intermediate checkpoint exits within roughly
+    // one poll interval of startup -- well before the delayed write above --
+    // instead of waiting for it. Allow a little slack for scheduling jitter.
+    expect(exitedAtMs).toBeGreaterThanOrEqual(writeAtMs - 50);
+    expect(stdout).not.toContain('benchpress_engagement_incomplete');
+    expect(stdout).not.toContain('benchpress_engagement_timeout');
+    expect(exitCode).toBe(0);
   }, 20_000);
 });
