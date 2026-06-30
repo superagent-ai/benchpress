@@ -76,7 +76,30 @@ Standalone provisioning for autobrin-flue engagements **inside** a Daytona sandb
 4. Start `dist/server.mjs` in the sandbox and POST `/workflows/engagement` over SSE
 5. Stream events to the caller and tear down the sandbox (unless `--keep-sandbox`)
 
-`bench daytona doctor` creates a sandbox and verifies `cua-driver status` plus `http://127.0.0.1:2280/computeruse/status`.
+`bench daytona doctor` creates a sandbox and checks Toolbox loopback reachability (`http://127.0.0.1:2280/computeruse/status`) plus screenshot capture (`/computeruse/screenshot` returns a non-empty image) — that combination is the real signal that computer-use is usable. `cua-driver` CLI presence/daemon status is reported for visibility but is **informational only** and does not fail the doctor: some computer-use-capable images don't install `cua-driver` at all, and others install it without a running daemon or a `start` subcommand. See [superagent-ai/benchpress#4](https://github.com/superagent-ai/benchpress/issues/4).
+
+### Sandbox requirements
+
+`bench daytona run`/`doctor` provision a real Daytona sandbox, so the image/snapshot you point them at has to satisfy a few constraints that fail hard rather than degrading gracefully:
+
+- **Node.js 22+.** autobrin-flue's `staging` and `main` branches need it — `staging` is on Flue `1.0.0-beta.8`, whose persistence layer uses the built-in `node:sqlite` module, and autobrin-flue's own `CHANGELOG.md` states "CI Node minimum is `22.19.0`". Generic Daytona snapshots (e.g. `daytona-large`) commonly ship Node 20 (`v20.19.2` observed), which fails like this once the engagement server starts — bootstrap itself (clone/`npm install`/`npm run build`) can succeed first and still hit this at startup:
+
+  ```text
+  Error [ERR_UNKNOWN_BUILTIN_MODULE]: No such built-in module: node:sqlite
+  Node.js v20.19.2
+  ```
+
+- **No published "app-parity" snapshot.** superagent-ai/app's computer-use sandbox is a *declarative image*, not a named Daytona snapshot: `node:22-bookworm` plus an XFCE/Xvfb desktop, a browser, `gh`, and the `cua-driver` CLI (installed from [`trycua/cua`](https://raw.githubusercontent.com/trycua/cua/main/libs/cua-driver/scripts/install.sh)). No equivalent snapshot is published for benchpress to reference by name today. `--image`/`--snapshot` are plain string flags, but the lower-level `createSandbox()` in [`src/daytona/client.ts`](src/daytona/client.ts) accepts a `string | Image` directly (`CreateSandboxFromImageParams`), so you can build the same image inline and create the sandbox programmatically instead of going through those flags. [`examples/node22-bookworm-computer-use-image.ts`](examples/node22-bookworm-computer-use-image.ts) does exactly this:
+
+  ```bash
+  dotenvx run -f ~/.config/secrets/global.env -- npx tsx examples/node22-bookworm-computer-use-image.ts
+  ```
+
+  Generic `daytona-large` is a perfectly valid `--snapshot` for computer-use itself (see the doctor description above) — it just also needs a Node 22+ runtime for autobrin-flue, same as any other image.
+
+- **`computerUse` is sandbox env, not engagement payload.** `normalizeEngagementPayload` ([`src/daytona/payload.ts`](src/daytona/payload.ts)) has no `computerUse` field — don't put it in `--payload` JSON. Computer-use routing is controlled by `AUTOBRIN_COMPUTER_USE=daytona` and `AUTOBRIN_COMPUTER_USE_BASE_URL`, which `buildSandboxEnv` ([`src/daytona/env.ts`](src/daytona/env.ts)) injects into the **sandbox environment** (defaults: `daytona`, `http://127.0.0.1:2280`), not the payload.
+
+- **`GH_TOKEN` needs read access to `superagent-ai/autobrin-flue`.** See [Secrets](#secrets) below.
 
 #### Repo-modality smoke test
 
@@ -109,7 +132,20 @@ Use your operator env file (never commit repo `.env` files):
 dotenvx run -f ~/.config/secrets/global.env -- npm run bench -- matrix --config config/matrix.example.jsonc
 ```
 
-Agent keys (`AZURE_OPENAI_*`, etc.) pass through to autobrin-flue engagements.
+Agent keys (`AZURE_OPENAI_*`, etc.) pass through to autobrin-flue engagements. Full list and defaults: [`.env.example`](.env.example).
+
+| Variable | Used by | Notes |
+| --- | --- | --- |
+| `DAYTONA_API_KEY` / `DAYTONA_JWT_TOKEN` + `DAYTONA_ORGANIZATION_ID` | `bench daytona run`/`doctor` | One auth mode required; see `getDaytonaClientConfig` in [`src/daytona/client.ts`](src/daytona/client.ts) |
+| `DAYTONA_API_URL`, `DAYTONA_TARGET` | `bench daytona run`/`doctor` | Optional Daytona client overrides |
+| `AUTOBRIN_FLUE_REF` | autobrin contender / `bench daytona run` | `staging` (default) or `main` branch pin only |
+| `AUTOBRIN_FLUE_REPOSITORY` | `bench daytona run` | Defaults to `https://github.com/superagent-ai/autobrin-flue.git` |
+| `AUTOBRIN_FLUE_GITHUB_TOKEN` / `GH_TOKEN` | `bench daytona run` (clones `autobrin-flue` inside the sandbox) | **Must have read access to the private `superagent-ai/autobrin-flue` repo.** A token without that scope reaches the sandbox fine but the clone fails with HTTP 403 |
+| `AUTOBRIN_COMPUTER_USE` | `bench daytona run` — sandbox env, **not** the `--payload` JSON | Defaults to `daytona`; routes AutoBrin's consume-only computer-use confirmation |
+| `AUTOBRIN_COMPUTER_USE_BASE_URL` | `bench daytona run` — sandbox env | Defaults to `http://127.0.0.1:2280` (Toolbox loopback) |
+| `CUA_SCREENSHOT_VISION_MODEL` | `bench daytona run` | Vision sidecar model for screenshot-to-text |
+| `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_BASE_URL`, `OPENROUTER_API_KEY`, `GOOGLE_API_KEY`, `FIRECRAWL_API_KEY` | autobrin-flue engagements | Passed through to the sandbox |
+| `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_BASE_URL` | autobrin-flue engagements | Optional observability export |
 
 ## Relationship to autobrin-flue
 
