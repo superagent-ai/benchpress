@@ -6,7 +6,7 @@ import {
   PAYLOAD_PATH,
   RESULT_PATH,
 } from './constants.js';
-import type { EngagementPayload } from './payload.js';
+import { engagementResultPath, type EngagementPayload } from './payload.js';
 import { executeChecked } from './sandbox-exec.js';
 import { shellQuote, writeFileCommand } from './shell.js';
 
@@ -27,6 +27,20 @@ export type EngagementRunScriptOptions = {
   maxWaitSeconds?: number;
   /** Seconds to sleep between completion-poll attempts. */
   pollIntervalSeconds?: number;
+  /**
+   * Absolute path where AutoBrin writes its `result.json` checkpoint for
+   * this engagement. Defaults to `RESULT_PATH` (under `BENCHPRESS_ROOT`);
+   * callers should pass `engagementResultPath(payload)` instead whenever the
+   * payload's `workspaceRoot` may differ from `BENCHPRESS_ROOT`.
+   */
+  resultPath?: string;
+  /**
+   * Absolute path the script reads the engagement payload JSON from before
+   * admitting the run. Defaults to `PAYLOAD_PATH`; overridable mainly so
+   * tests can exercise the generated script without `BENCHPRESS_ROOT`
+   * existing on disk.
+   */
+  payloadPath?: string;
 };
 
 const DEFAULT_MAX_WAIT_SECONDS = 3300;
@@ -39,13 +53,15 @@ export async function writeEngagementPayload(sandbox: Sandbox, payload: Engageme
 export function buildEngagementRunScript(options: EngagementRunScriptOptions = {}): string {
   const maxWaitSeconds = options.maxWaitSeconds ?? DEFAULT_MAX_WAIT_SECONDS;
   const pollIntervalSeconds = options.pollIntervalSeconds ?? DEFAULT_POLL_INTERVAL_SECONDS;
+  const resultPath = options.resultPath ?? RESULT_PATH;
+  const payloadPath = options.payloadPath ?? PAYLOAD_PATH;
 
   return [
     '#!/bin/bash',
     'set -euo pipefail',
     `ROOT=${shellQuote(BENCHPRESS_ROOT)}`,
     `FLUE_ROOT=${shellQuote(AUTOBRIN_FLUE_DIR)}`,
-    `PAYLOAD=${shellQuote(PAYLOAD_PATH)}`,
+    `PAYLOAD=${shellQuote(payloadPath)}`,
     `STREAM_LOG=${shellQuote(`${LOGS_DIR}/autobrin-flue.stream.jsonl`)}`,
     `SERVER_LOG=${shellQuote(`${LOGS_DIR}/autobrin-flue-server.log`)}`,
     `SERVER_ERR=${shellQuote(`${LOGS_DIR}/autobrin-flue-server.err`)}`,
@@ -93,7 +109,7 @@ export function buildEngagementRunScript(options: EngagementRunScriptOptions = {
     // A stale checkpoint from a previous run in the same workspace must not be
     // mistaken for this run's completion signal (see the result-checkpoint
     // poll below).
-    `rm -f ${shellQuote(RESULT_PATH)}`,
+    `rm -f ${shellQuote(resultPath)}`,
     '',
     'python3 - <<\'PY\' | tee "$STREAM_LOG"',
     'import json',
@@ -103,8 +119,8 @@ export function buildEngagementRunScript(options: EngagementRunScriptOptions = {
     'import urllib.error',
     'import urllib.request',
     '',
-    `PAYLOAD_PATH = ${JSON.stringify(PAYLOAD_PATH)}`,
-    `RESULT_PATH = ${JSON.stringify(RESULT_PATH)}`,
+    `PAYLOAD_PATH = ${JSON.stringify(payloadPath)}`,
+    `RESULT_PATH = ${JSON.stringify(resultPath)}`,
     `MAX_WAIT_SECONDS = ${maxWaitSeconds}`,
     `POLL_INTERVAL_SECONDS = ${pollIntervalSeconds}`,
     'base_url = f"http://127.0.0.1:{os.environ[\'FLUE_PORT\']}"',
@@ -174,8 +190,11 @@ export function buildEngagementRunScript(options: EngagementRunScriptOptions = {
     '                emit(event)',
     '                if isinstance(event, dict) and event.get("type") == "run_end":',
     '                    run_is_error = bool(event.get("isError"))',
-    '            if run_is_error is not None or stream_closed:',
-    '                break',
+    '            if stream_closed:',
+    '                # No further events will ever arrive on this stream. Stop',
+    '                # polling it and fall through to the result.json checkpoint',
+    '                # below in case a run_end event was somehow never observed.',
+    '                run_events_available = False',
     '        except urllib.error.HTTPError as error:',
     '            if error.code == 404:',
     '                run_events_available = False',
@@ -192,9 +211,16 @@ export function buildEngagementRunScript(options: EngagementRunScriptOptions = {
     '        except (urllib.error.URLError, OSError) as error:',
     '            emit({"type": "benchpress_run_events_error", "error": str(error)})',
     '',
-    '    result_status = read_result_status()',
-    '    if result_status is not None:',
-    '        run_is_error = result_status == "error"',
+    '    # Always consult the on-disk checkpoint before deciding whether to',
+    '    # keep waiting -- a closed/unavailable run-event stream must never',
+    '    # short-circuit past this, or a genuinely finished engagement could be',
+    '    # reported incomplete just because its run_end event was missed.',
+    '    if run_is_error is None:',
+    '        result_status = read_result_status()',
+    '        if result_status is not None:',
+    '            run_is_error = result_status == "error"',
+    '',
+    '    if run_is_error is not None:',
     '        break',
     '',
     '    if time.time() >= deadline:',
@@ -238,12 +264,18 @@ export async function runEngagementViaHttp(
 ): Promise<EngagementRunResult> {
   await writeEngagementPayload(sandbox, payload);
 
+  // AutoBrin writes result.json under the payload's own workspaceRoot, which
+  // callers may set away from BENCHPRESS_ROOT -- the wait loop and the final
+  // read below must agree on that same, payload-derived location.
+  const resultPath = scriptOptions?.resultPath ?? engagementResultPath(payload);
+  const effectiveScriptOptions: EngagementRunScriptOptions = { ...scriptOptions, resultPath };
+
   const scriptPath = `${BENCHPRESS_ROOT}/bin/run-engagement`;
   await executeChecked(
     sandbox,
     [
       `mkdir -p ${shellQuote(`${BENCHPRESS_ROOT}/bin`)}`,
-      writeFileCommand(scriptPath, buildEngagementRunScript(scriptOptions)),
+      writeFileCommand(scriptPath, buildEngagementRunScript(effectiveScriptOptions)),
       `chmod 755 ${shellQuote(scriptPath)}`,
     ].join('\n'),
     '/',
@@ -282,7 +314,7 @@ export async function runEngagementViaHttp(
   const exitCode = finalCommand.exitCode ?? 1;
 
   let resultJson: Record<string, unknown> | undefined;
-  const resultRead = await sandbox.process.executeCommand(`cat ${shellQuote(RESULT_PATH)}`, '/', undefined, 15);
+  const resultRead = await sandbox.process.executeCommand(`cat ${shellQuote(resultPath)}`, '/', undefined, 15);
   if (resultRead.exitCode === 0 && resultRead.result.trim()) {
     try {
       resultJson = JSON.parse(resultRead.result) as Record<string, unknown>;
@@ -296,7 +328,7 @@ export async function runEngagementViaHttp(
   return {
     exitCode,
     streamLogPath: `${LOGS_DIR}/autobrin-flue.stream.jsonl`,
-    resultPath: RESULT_PATH,
+    resultPath,
     resultJson,
   };
 }
