@@ -103,9 +103,8 @@ export async function runDaytonaEngagement(options: DaytonaRunOptions): Promise<
         console.error(`Daytona sandbox deleted: ${sandbox.id}`);
       } catch (error) {
         console.error(
-          `Failed to delete Daytona sandbox ${sandbox.id}: ${error instanceof Error ? error.message : String(error)}`,
+          `Warning: failed to delete Daytona sandbox ${sandbox.id}: ${error instanceof Error ? error.message : String(error)}`,
         );
-        throw error;
       }
     }
   }

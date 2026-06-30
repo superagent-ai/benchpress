@@ -62,7 +62,7 @@ export async function bootstrapAutobrinFlue(sandbox: Sandbox, options: Bootstrap
     'if [ ! -d node_modules ]; then',
     `  npm install >> ${shellQuote(`${LOGS_DIR}/autobrin-flue-install.log`)} 2>&1`,
     'fi',
-    'if [ ! -d dist ] && [ ! -d .flue/dist ] && [ ! -d .flue/build ]; then',
+    'if [ ! -f dist/server.mjs ] && [ ! -f .flue/dist/server.mjs ]; then',
     `  npm run build >> ${shellQuote(`${LOGS_DIR}/autobrin-flue-build.log`)} 2>&1`,
     'fi',
   ].join('\n');
@@ -91,15 +91,22 @@ export async function prepareRepoTarget(
     'set -euo pipefail',
     `TARGET=${shellQuote(TARGET_DIR)}`,
     `CLONE_URL=${shellQuote(cloneUrl)}`,
+    `SHA=${shellQuote(payload.sha ?? '')}`,
     'if [ -n "$GITHUB_ACCESS_TOKEN" ] && [[ "$CLONE_URL" == https://github.com/* ]]; then',
     '  CLONE_URL="https://x-access-token:${GITHUB_ACCESS_TOKEN}@github.com/${CLONE_URL#https://github.com/}"',
     'fi',
-    'git clone --depth 1 "$CLONE_URL" "$TARGET"',
-    payload.sha ? `git -C "$TARGET" checkout ${shellQuote(payload.sha)}` : '',
+    'rm -rf "$TARGET"',
+    'mkdir -p "$TARGET"',
+    'git -C "$TARGET" init',
+    'git -C "$TARGET" remote add origin "$CLONE_URL"',
+    'if [ -n "$SHA" ]; then',
+    '  git -C "$TARGET" fetch --depth 1 origin "$SHA"',
+    'else',
+    '  git -C "$TARGET" fetch --depth 1 origin HEAD',
+    'fi',
+    'git -C "$TARGET" checkout FETCH_HEAD',
     'git -C "$TARGET" rev-parse HEAD',
-  ]
-    .filter(Boolean)
-    .join('\n');
+  ].join('\n');
 
   await executeChecked(sandbox, cloneScript, '/', 600, {
     GITHUB_ACCESS_TOKEN: token,
