@@ -110,13 +110,13 @@ export async function ensureComputerUseAssets(sandbox: Sandbox): Promise<Compute
     visionHelperPresent = fallbackVisionCheck.exitCode === 0;
   }
 
-  if (!computerUseStatusOk && !computerUseScreenshotOk) {
+  if (!computerUseStatusOk || !computerUseScreenshotOk) {
     console.warn(
-      'Computer-use Toolbox API unreachable and screenshot capture failed. Engagement may still run, but live-computer confirmation evidence will be unavailable. (cua-driver presence/daemon status is informational only and does not gate this — see superagent-ai/benchpress#4.)',
+      `Computer-use Toolbox check incomplete (status reachable: ${computerUseStatusOk}, screenshot capture: ${computerUseScreenshotOk}). Engagement may still run, but live-computer confirmation evidence may be unavailable. (cua-driver presence/daemon status is informational only and does not gate this — see superagent-ai/benchpress#4.)`,
     );
   } else if (!cuaDriverAvailable) {
     console.error(
-      'Note: cua-driver CLI not detected in sandbox image (informational only — Toolbox loopback is reachable, which is what AutoBrin engagements actually require).',
+      'Note: cua-driver CLI not detected in sandbox image (informational only — Toolbox loopback status and screenshot capture both succeeded, which is what AutoBrin engagements actually require).',
     );
   }
 

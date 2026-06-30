@@ -180,6 +180,23 @@ describe('ensureComputerUseAssets (superagent-ai/benchpress#4 — cua-driver is 
     expect(status.computerUseScreenshotOk).toBe(false);
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Toolbox'));
   });
+
+  it('warns when status is reachable but screenshot capture alone fails, and does not also claim Toolbox is fully healthy', async () => {
+    const sandbox = scriptedSandbox([
+      ['command -v cua-driver', { exitCode: 0, result: '' }],
+      ['computeruse/status', { exitCode: 0, result: '' }],
+      ['computeruse/screenshot', { exitCode: 1, result: '' }],
+    ]);
+
+    const status = await ensureComputerUseAssets(sandbox);
+
+    expect(status.computerUseStatusOk).toBe(true);
+    expect(status.computerUseScreenshotOk).toBe(false);
+    // This is the scenario runDaytonaDoctor treats as a failed image (pass = status && screenshot),
+    // so ensureComputerUseAssets must warn here too instead of staying silent. See benchpress#6 review.
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Toolbox'));
+    expect(errorSpy).not.toHaveBeenCalledWith(expect.stringContaining('Toolbox loopback status and screenshot capture both succeeded'));
+  });
 });
 
 describe('runDaytonaDoctor (superagent-ai/benchpress#4)', () => {

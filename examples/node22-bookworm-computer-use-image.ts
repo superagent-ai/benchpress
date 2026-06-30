@@ -16,6 +16,7 @@
  * Requires DAYTONA_API_KEY (or DAYTONA_JWT_TOKEN + DAYTONA_ORGANIZATION_ID). Building the image from
  * scratch (apt installs, cua-driver download) typically takes a few minutes on first run.
  */
+import { fileURLToPath } from 'node:url';
 import { Image } from '@daytona/sdk';
 import {
   createDaytonaClient,
@@ -112,7 +113,7 @@ async function main(): Promise<void> {
   }
 }
 
-if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
   main().catch((error) => {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;
