@@ -11,7 +11,7 @@ benchpress is an **evaluation harness**, not a product core. Keep benchmark-spec
 - **No competing-tool names in source.** Ship `autobrin` + generic `command` runner types only. User configs (gitignored) name external agents.
 - **Generated output uncommitted.** `runs/`, `results/`, `engagements/`, `.cache/`, `vendor/` stay gitignored.
 - **One-way dependency on autobrin-flue.** Clone/pin at runtime via contender `ref` or `AUTOBRIN_FLUE_REF`. Do not add benchpress references to autobrin-flue.
-- **No Daytona infra here.** Argus/app own provisioning; benchpress consumes prepared targets or materializes repo targets via autobrin-flue's workspace helpers.
+- **Daytona provisioning lives here for standalone runs.** `bench daytona run` provisions a Daytona sandbox, bootstraps autobrin-flue inside it, and runs engagements via the same HTTP/SSE flow as the app repo. autobrin-flue core stays consume-only; benchpress owns sandbox lifecycle for engagements and benchmark runs outside app.
 
 ## Benchmark capability dependencies
 
