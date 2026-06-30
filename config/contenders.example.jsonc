@@ -1,0 +1,11 @@
+{
+  "contenders": [
+    { "id": "autobrin@staging", "type": "autobrin", "ref": "staging" },
+    { "id": "autobrin@main", "type": "autobrin", "ref": "main" },
+    {
+      "id": "<your-tool>",
+      "type": "command",
+      "command": "<your-tool> run {repo} --model {model}"
+    }
+  ]
+}

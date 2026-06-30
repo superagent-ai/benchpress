@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.npm-cache/
+.npm-logs/
+vendor/
+.cache/
+runs/
+results/
+engagements/
+*.local.jsonc
+config/contenders.local.jsonc
+config/matrix.local.jsonc

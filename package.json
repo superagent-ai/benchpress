@@ -1,0 +1,24 @@
+{
+  "name": "benchpress",
+  "version": "0.1.0",
+  "description": "N-contenders x Y-benchmarks competition harness for security agents.",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "bench": "./bin/bench.ts"
+  },
+  "scripts": {
+    "bench": "tsx bin/bench.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "validate": "npm run typecheck && npm test"
+  },
+  "keywords": ["benchmark", "security", "autobrin"],
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "@types/node": "^25.6.2",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.6"
+  }
+}

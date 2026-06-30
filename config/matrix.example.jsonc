@@ -1,0 +1,11 @@
+{
+  "contenders": [
+    { "id": "autobrin@staging", "type": "autobrin", "ref": "staging" },
+    { "id": "autobrin@main", "type": "autobrin", "ref": "main" }
+  ],
+  "benchmarks": ["repo-cve-smoke"],
+  "controls": {
+    "model": "kimi-azure/kimi-k2.6",
+    "maxEngagementCostUsd": 5
+  }
+}
