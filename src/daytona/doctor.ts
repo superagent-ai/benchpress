@@ -1,4 +1,5 @@
 import type { Sandbox } from '@daytona/sdk';
+import { checkComputerUseScreenshot } from './assets.js';
 import { DEFAULT_COMPUTER_USE_BASE_URL } from './constants.js';
 import {
   createDaytonaClient,
@@ -19,13 +20,20 @@ export type DaytonaDoctorOptions = {
 
 export type DaytonaDoctorResult = {
   sandboxId: string;
-  cuaDriverStatusOk: boolean;
+  /** Toolbox loopback `/computeruse/status` reachable (curl -f exits 0). Required for `pass`. */
   computerUseStatusOk: boolean;
+  /** Toolbox loopback `/computeruse/screenshot` returned a non-empty image. Required for `pass`. */
+  computerUseScreenshotOk: boolean;
+  /** Informational only: `cua-driver` CLI present on the image. Not required for `pass`. */
+  cuaDriverAvailable: boolean;
+  /** Informational only: `cua-driver status` exited 0. Not required for `pass` — see superagent-ai/benchpress#4. */
+  cuaDriverStatusOk: boolean;
   pass: boolean;
   keptSandbox: boolean;
   details: {
     cuaDriverOutput: string;
-    computerUseOutput: string;
+    computerUseStatusOutput: string;
+    computerUseScreenshotBytes: number;
   };
 };
 
@@ -58,6 +66,11 @@ export async function runDaytonaDoctor(options: DaytonaDoctorOptions): Promise<D
     console.error(`Daytona doctor sandbox created: ${sandbox.id}`);
     await disableSandboxAutoStop(sandbox);
 
+    // cua-driver presence/daemon status is informational only (superagent-ai/benchpress#4): some
+    // app-parity images install the CLI without a running daemon or a `start` subcommand, and some
+    // images (e.g. generic daytona-large) don't install it at all — yet Toolbox loopback CU works
+    // in both cases. The real pass/fail signal is Toolbox reachability + screenshot capture.
+    const cuaDriverAvailableCheck = await executeOptional(sandbox, 'command -v cua-driver >/dev/null 2>&1', '/', 15);
     const cuaDriver = await executeOptional(sandbox, 'cua-driver status', '/', 30);
     const computerUse = await executeOptional(
       sandbox,
@@ -65,10 +78,21 @@ export async function runDaytonaDoctor(options: DaytonaDoctorOptions): Promise<D
       '/',
       30,
     );
+    const screenshot = await checkComputerUseScreenshot(sandbox);
 
+    const cuaDriverAvailable = cuaDriverAvailableCheck.exitCode === 0;
     const cuaDriverStatusOk = cuaDriver.exitCode === 0;
     const computerUseStatusOk = computerUse.exitCode === 0;
-    const pass = cuaDriverStatusOk && computerUseStatusOk;
+    const computerUseScreenshotOk = screenshot.ok;
+    const pass = computerUseStatusOk && computerUseScreenshotOk;
+
+    if (!cuaDriverStatusOk) {
+      console.error(
+        `Note: cua-driver daemon check did not pass (informational only, not required when Toolbox loopback works — see superagent-ai/benchpress#4): ${
+          cuaDriver.result.trim() || 'no output'
+        }`,
+      );
+    }
 
     if (options.keepSandbox) {
       keptSandbox = true;
@@ -77,13 +101,16 @@ export async function runDaytonaDoctor(options: DaytonaDoctorOptions): Promise<D
 
     return {
       sandboxId: sandbox.id,
-      cuaDriverStatusOk,
       computerUseStatusOk,
+      computerUseScreenshotOk,
+      cuaDriverAvailable,
+      cuaDriverStatusOk,
       pass,
       keptSandbox,
       details: {
         cuaDriverOutput: cuaDriver.result.trim(),
-        computerUseOutput: computerUse.result.trim(),
+        computerUseStatusOutput: computerUse.result.trim(),
+        computerUseScreenshotBytes: screenshot.bytes,
       },
     };
   } finally {
