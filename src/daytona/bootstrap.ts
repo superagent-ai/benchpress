@@ -30,12 +30,44 @@ export async function ensureWorkspaceLayout(sandbox: Sandbox): Promise<void> {
   );
 }
 
+/**
+ * Builds the human-readable message surfaced when the `autobrin-flue` clone step fails, so the
+ * caller can immediately tell "no token configured" apart from "token present but rejected"
+ * (insufficient scope / SSO not authorized / HTTP 403) rather than seeing a bare git exit code.
+ * superagent-ai/autobrin-flue is private, so `GH_TOKEN` (or `AUTOBRIN_FLUE_GITHUB_TOKEN`) must have
+ * read access to it. See https://github.com/superagent-ai/benchpress/issues/5.
+ */
+export function describeAutobrinFlueCloneFailure(params: {
+  repo: string;
+  hasToken: boolean;
+  logPath: string;
+}): string {
+  if (!params.hasToken) {
+    return [
+      'autobrin-flue clone failed: no GitHub token configured.',
+      `${params.repo} is private -- set AUTOBRIN_FLUE_GITHUB_TOKEN or GH_TOKEN to a token with read access to it.`,
+      `See ${params.logPath} for git's full output.`,
+    ].join(' ');
+  }
+  return [
+    'autobrin-flue clone failed even though a GitHub token was provided.',
+    `The token likely lacks read access to ${params.repo} (insufficient scope, SSO not authorized, or HTTP 403).`,
+    `See ${params.logPath} for git's full output.`,
+  ].join(' ');
+}
+
 export async function bootstrapAutobrinFlue(sandbox: Sandbox, options: BootstrapOptions): Promise<void> {
   await ensureWorkspaceLayout(sandbox);
 
   const repo = options.repository ?? process.env.AUTOBRIN_FLUE_REPOSITORY ?? 'https://github.com/superagent-ai/autobrin-flue.git';
   const ref = options.ref;
   const githubToken = options.githubToken ?? process.env.AUTOBRIN_FLUE_GITHUB_TOKEN ?? process.env.GH_TOKEN ?? '';
+  const cloneLogPath = `${LOGS_DIR}/autobrin-flue-clone.log`;
+  const cloneFailureMessage = describeAutobrinFlueCloneFailure({
+    repo,
+    hasToken: Boolean(githubToken),
+    logPath: cloneLogPath,
+  });
 
   const cloneScript = [
     'set -euo pipefail',
@@ -49,14 +81,19 @@ export async function bootstrapAutobrinFlue(sandbox: Sandbox, options: Bootstrap
     '  if [ -n "$AUTOBRIN_FLUE_GITHUB_TOKEN" ] && [[ "$REPO" == https://github.com/* ]]; then',
     '    CLONE_URL="https://x-access-token:${AUTOBRIN_FLUE_GITHUB_TOKEN}@github.com/${REPO#https://github.com/}"',
     '  fi',
-    `  git clone --depth 1 --branch "$REF" "$CLONE_URL" "$TMP" >> ${shellQuote(`${LOGS_DIR}/autobrin-flue-clone.log`)} 2>&1`,
-    '  mkdir -p "$ROOT"',
-    '  if [ -f "$TMP/.argusignore" ]; then',
-    '    (cd "$TMP" && tar --exclude-from=.argusignore -cf - .) | tar -C "$ROOT" -xf -',
+    `  if git clone --depth 1 --branch "$REF" "$CLONE_URL" "$TMP" >> ${shellQuote(cloneLogPath)} 2>&1; then`,
+    '    mkdir -p "$ROOT"',
+    '    if [ -f "$TMP/.argusignore" ]; then',
+    '      (cd "$TMP" && tar --exclude-from=.argusignore -cf - .) | tar -C "$ROOT" -xf -',
+    '    else',
+    '      (cd "$TMP" && tar --exclude-vcs -cf - .) | tar -C "$ROOT" -xf -',
+    '    fi',
+    '    rm -rf "$TMP"',
     '  else',
-    '    (cd "$TMP" && tar --exclude-vcs -cf - .) | tar -C "$ROOT" -xf -',
+    '    clone_rc=$?',
+    `    echo ${shellQuote(cloneFailureMessage)}`,
+    '    exit "$clone_rc"',
     '  fi',
-    '  rm -rf "$TMP"',
     'fi',
     `cd ${shellQuote(AUTOBRIN_FLUE_DIR)}`,
     'if [ ! -d node_modules ]; then',
