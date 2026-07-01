@@ -108,7 +108,8 @@ export type AttemptRecord = {
 export function buildWebappPayload(input: {
   target: TargetHandle;
   controls: RunControls;
-  workspaceRoot: string;
+  /** Omit for the Daytona transport: the sandbox-side launcher defaults this to its own root. */
+  workspaceRoot?: string;
   contributors?: number;
 }): Record<string, unknown> {
   const webapp = webappTargetMetadata(input.target);
@@ -131,7 +132,7 @@ export function buildWebappPayload(input: {
       secret: webapp.secret,
       secretUploadingUrl: webapp.secretUploadingUrl,
     },
-    workspaceRoot: input.workspaceRoot,
+    ...(input.workspaceRoot !== undefined ? { workspaceRoot: input.workspaceRoot } : {}),
     model: input.controls.model,
     contributors: input.contributors ?? input.controls.contributors,
     ...buildGuardrails(input.controls),
@@ -274,6 +275,12 @@ export function buildReadAttemptsScript(attacksDir: string): string {
  * `runDaytonaEngagement`'s `afterEngagement` hook (before sandbox cleanup) -- by the time
  * `runDaytonaEngagement` itself resolves, the sandbox is already deleted.
  *
+ * The `<workspaceRoot>/workspace/attacks/<attempt>/*.json` layout is a modality-agnostic
+ * autobrin-flue convention (both `repo` and `webapp` modalities call the same `prepareWorkspace()`
+ * layout code), so this reads attempts back the same way regardless of `payload.modality` -- this
+ * mirrors the local-transport reader (`extractClaimFromWorkspace`), which is likewise never gated
+ * on modality.
+ *
  * Deliberately does NOT tolerate a script-level failure (non-zero exit, unparsable/non-array
  * output) by falling back to `[]`: the script's own per-file reads already tolerate an
  * individual attempt missing evaluate/report/disclosure.json (still mid-run, a legitimate `{}`),
@@ -285,8 +292,6 @@ export function buildReadAttemptsScript(attacksDir: string): string {
  * contract (cleanup still runs, the overall call rejects) instead of corrupting the claim.
  */
 export async function fetchAttemptsFromSandbox(sandbox: Sandbox, payload: EngagementPayload): Promise<AttemptRecord[]> {
-  if (payload.modality !== 'repo') return [];
-
   const attacksDir = `${engagementWorkspaceDir(payload)}/attacks`;
   const script = ['set -euo pipefail', "python3 - <<'PY'", buildReadAttemptsScript(attacksDir), 'PY'].join('\n');
   const response = await executeChecked(sandbox, script, '/', 60);
@@ -423,10 +428,13 @@ async function runViaLocalNpx(input: RunInput): Promise<NormalizedResult> {
 async function runViaDaytona(input: RunInput): Promise<NormalizedResult> {
   const { contenderId, config, contributors, task, target, controls, context } = input;
 
-  if (target.modality !== 'repo' || !target.repo) {
+  if (target.modality !== 'repo' && target.modality !== 'webapp') {
     throw new Error(
-      `autobrin contender "${contenderId}": transport "daytona" currently only supports modality "repo" (got "${target.modality}")`,
+      `autobrin contender "${contenderId}": transport "daytona" does not support modality "${target.modality}"`,
     );
+  }
+  if (target.modality === 'repo' && !target.repo) {
+    throw new Error(`autobrin contender "${contenderId}": modality "repo" requires target.repo`);
   }
 
   const started = Date.now();
@@ -438,8 +446,14 @@ async function runViaDaytona(input: RunInput): Promise<NormalizedResult> {
   await mkdir(context.resultsDir, { recursive: true });
 
   // No workspaceRoot: the sandbox-side launcher defaults it to its own root (BENCHPRESS_ROOT),
-  // never this (local-only) engagementDir.
-  const payload = buildRepoPayload({ target, controls, contributors });
+  // never this (local-only) engagementDir. Webapp targets skip repo-modality-specific target
+  // materialization entirely: there is no target repo to clone into the sandbox, only a URL the
+  // sandbox reaches over the network (runDaytonaEngagement's own modality branch calls
+  // prepareWebappTarget instead of prepareRepoTarget -- see src/daytona/bootstrap.ts).
+  const payload =
+    target.modality === 'webapp'
+      ? buildWebappPayload({ target, controls, contributors })
+      : buildRepoPayload({ target, controls, contributors });
 
   const stdoutChunks: string[] = [];
   const stderrChunks: string[] = [];

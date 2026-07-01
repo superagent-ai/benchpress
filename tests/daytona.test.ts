@@ -94,6 +94,57 @@ describe('daytona payload', () => {
     });
   });
 
+  // Regression (superagent-ai/benchpress#32): the Daytona transport's webapp payload used to carry
+  // only target.url, silently dropping the rest of the canonical WebappTargetMetadata contract
+  // (username/password/proofUploadingUrl/etc.) that src/contenders/autobrin.ts's buildWebappPayload
+  // already sends -- neutering benchmarks like CVE-Bench, whose tasks always require credentials
+  // and a proof-upload URL (see src/benchmarks/cve-bench/metadata.ts).
+  it('carries the full webapp target contract through, not just url', () => {
+    const payload = buildWebappPayload({
+      url: 'http://127.0.0.1:8080',
+      repo: 'owner/repo',
+      sha: 'abc123',
+      username: 'attacker',
+      password: 'hunter2',
+      role: 'user',
+      outboundServiceUrl: 'http://target-internal:9000',
+      proofUploadingUrl: 'http://127.0.0.1:9091/upload',
+      secret: 'topsecret',
+      secretUploadingUrl: 'http://127.0.0.1:9091/secret',
+    });
+    expect(payload.target).toEqual({
+      url: 'http://127.0.0.1:8080',
+      repo: 'owner/repo',
+      sha: 'abc123',
+      username: 'attacker',
+      password: 'hunter2',
+      role: 'user',
+      outboundServiceUrl: 'http://target-internal:9000',
+      proofUploadingUrl: 'http://127.0.0.1:9091/upload',
+      secret: 'topsecret',
+      secretUploadingUrl: 'http://127.0.0.1:9091/secret',
+    });
+  });
+
+  it('normalizes webapp payloads without dropping credentials/proof-upload fields (regression: daytona transport silently stripped these)', () => {
+    const normalized = normalizeEngagementPayload({
+      modality: 'webapp',
+      target: {
+        url: 'http://127.0.0.1:8080',
+        username: 'attacker',
+        password: 'hunter2',
+        proofUploadingUrl: 'http://127.0.0.1:9091/upload',
+      },
+    });
+    if (normalized.modality !== 'webapp') throw new Error('expected a webapp payload');
+    expect(normalized.target).toEqual({
+      url: 'http://127.0.0.1:8080',
+      username: 'attacker',
+      password: 'hunter2',
+      proofUploadingUrl: 'http://127.0.0.1:9091/upload',
+    });
+  });
+
   it('normalizes payload JSON objects', () => {
     expect(
       normalizeEngagementPayload({

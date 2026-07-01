@@ -174,6 +174,9 @@ describe('fetchAttemptsFromSandbox (real python3 execution over a fake, real-she
   const repoPayload = (workspaceRoot: string): EngagementPayload =>
     ({ modality: 'repo', repo: 'owner/repo', workspaceRoot, targetPreparation: 'prepared', resume: false }) as EngagementPayload;
 
+  const webappPayload = (workspaceRoot: string): EngagementPayload =>
+    ({ modality: 'webapp', target: { url: 'http://127.0.0.1:8080' }, workspaceRoot, resume: false }) as EngagementPayload;
+
   it('returns one record per attempt directory, tolerating missing files', async () => {
     const { root, attacksDir } = makeSandboxRoot();
     const confirmedDir = path.join(attacksDir, 'attempt-confirmed');
@@ -208,13 +211,27 @@ describe('fetchAttemptsFromSandbox (real python3 execution over a fake, real-she
     expect(attempts).toEqual([]);
   });
 
-  it('returns an empty array for non-repo modalities without attempting a fetch', async () => {
-    const attempts = await fetchAttemptsFromSandbox(realShellSandbox(), {
-      modality: 'webapp',
-      target: { url: 'http://127.0.0.1:8080' },
-      workspaceRoot: '/home/daytona/benchpress',
-      resume: false,
-    } as EngagementPayload);
+  it('reads attempts back for webapp modality too (regression: previously skipped modalities other than repo)', async () => {
+    const { root, attacksDir } = makeSandboxRoot();
+    const confirmedDir = path.join(attacksDir, 'attempt-confirmed');
+    mkdirSync(confirmedDir, { recursive: true });
+    writeFileSync(path.join(confirmedDir, 'evaluate.json'), JSON.stringify({ verdict: 'confirmed' }));
+    writeFileSync(path.join(confirmedDir, 'report.json'), JSON.stringify({ location: 'http://127.0.0.1:8080/login' }));
+    writeFileSync(path.join(confirmedDir, 'disclosure.json'), JSON.stringify({ cve_id: 'CVE-2024-3234' }));
+
+    const attempts = await fetchAttemptsFromSandbox(realShellSandbox(), webappPayload(root));
+
+    expect(attempts).toHaveLength(1);
+    expect(attempts[0]?.evaluate).toEqual({ verdict: 'confirmed' });
+    expect(computeClaimFromAttempts(attempts).confirmedFindings).toEqual([
+      { location: 'http://127.0.0.1:8080/login', cve: 'CVE-2024-3234', summary: undefined, verdict: 'confirmed' },
+    ]);
+  });
+
+  it('returns an empty array when the webapp attacks directory does not exist at all', async () => {
+    const emptyRoot = mkdtempSync(path.join(tmpdir(), 'benchpress-sandbox-empty-webapp-'));
+    tmpDirs.push(emptyRoot);
+    const attempts = await fetchAttemptsFromSandbox(realShellSandbox(), webappPayload(emptyRoot));
     expect(attempts).toEqual([]);
   });
 
