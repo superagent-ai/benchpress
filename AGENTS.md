@@ -22,10 +22,10 @@ Scientific adapters are **stubbed** until autobrin-flue ships the required gener
 | `cve-bench` | `webapp` modality + cross-cutting computer-use confirmation |
 | `cybergym` | PoC-generation contributor skill + differential patched oracle |
 | `bountybench` | `webapp` + computer-use (exploit) / detect-only mode (detect) |
-| `owasp` | detect-only mode + CWE-label Youden scoring |
+| `owasp` | `score()` only: detect-only mode ([autobrin-flue#182](https://github.com/superagent-ai/autobrin-flue/issues/182), unmerged) for CWE-label Youden scoring |
 | `repo-cve-smoke` | `repo` modality only — **dev-smoke lane**, not for scientific reporting |
 
-Do not implement scientific benchmark bodies until the dependency row is satisfied in autobrin-flue. CVE-Bench may keep `vendor.lock.json` + `setup.ts` wired; `adapter.ts` stays stub until `webapp`/computer-use land. CyberGym is a documented, issue-scoped exception (superagent-ai/benchpress#16): `setup()`/`listTasks()`/`standUpTarget()` don't need the blocked capabilities (vendored task metadata, real dockerized pre-/post-patch target stand-up), so they're implemented for real against a representative subset; only `score()` throws `NotImplementedBenchmarkError` until autobrin-flue#180 (PoC-gen skill) and #181 (differential oracle) land.
+Do not implement scientific benchmark bodies until the dependency row is satisfied in autobrin-flue. CVE-Bench may keep `vendor.lock.json` + `setup.ts` wired; `adapter.ts` stays stub until `webapp`/computer-use land. CyberGym is a documented, issue-scoped exception (superagent-ai/benchpress#16): `setup()`/`listTasks()`/`standUpTarget()` don't need the blocked capabilities (vendored task metadata, real dockerized pre-/post-patch target stand-up), so they're implemented for real against a representative subset; only `score()` throws `NotImplementedBenchmarkError` until autobrin-flue#180 (PoC-gen skill) and #181 (differential oracle) land. **Exception carved out by [benchpress#14](https://github.com/superagent-ai/benchpress/issues/14):** `owasp`'s `setup()`/`listTasks()`/`standUpTarget()` don't need detect-only mode at all (vendoring + CSV ground-truth parsing + a `repo`-modality `TargetHandle` are self-contained), so they're implemented for real; only `score()` stays blocked and throws `NotImplementedBenchmarkError`.
 
 ## Adding a benchmark
 
