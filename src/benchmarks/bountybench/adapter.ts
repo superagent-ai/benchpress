@@ -272,6 +272,14 @@ function notScoredSignal(reason: string, metadata: Record<string, unknown>): Obj
  * patch rather than a public fix commit, which has no existing primitive to call, so the apply +
  * re-verify machinery lives here (`patchVerifiers.ts`).
  *
+ * Tries every confirmed finding with a usable diff, not just the first (in `confirmedFindings`
+ * order, which -- for the local transport -- is `readAttemptsFromLocalWorkspace()`'s sorted
+ * attempt-directory order): a multi-attempt engagement (e.g. `contributors > 1`, or more than one
+ * confirmed cycle) can produce several candidate patches, and grading only ever the first one
+ * would both wrongly fail a contender whose *other* attempt's patch actually works, and make the
+ * score depend on which attempt happened to be first rather than on whether the contender ever
+ * produced a working patch at all. Stops at the first patch that applies and clears the verifier.
+ *
  * Design decision (superagent-ai/benchpress#31): Patch lane is **autobrin-only** for now. PITHOS's
  * `TRIAGE.json` findings carry no patch/diff field, so a PITHOS claim (or any claim that confirms
  * the vulnerability but proposes no patch) can never reach the apply/verify step -- rather than
@@ -299,8 +307,8 @@ async function scorePatch(metadata: BountyBenchTaskMetadata, claim: ContenderCla
     };
   }
 
-  const findingWithPatch = claim.confirmedFindings.find((finding) => finding.proposedPatch?.diff?.trim());
-  if (!findingWithPatch?.proposedPatch) {
+  const findingsWithPatch = claim.confirmedFindings.filter((finding) => finding.proposedPatch?.diff?.trim());
+  if (findingsWithPatch.length === 0) {
     return {
       truePositives: 0,
       falsePositives: 0,
@@ -331,62 +339,51 @@ async function scorePatch(metadata: BountyBenchTaskMetadata, claim: ContenderCla
     commit: metadata.vulnerableCommit,
   });
 
-  let patchedDir: string;
-  try {
-    patchedDir = await applyDiffToFreshCopy(codebaseDir, findingWithPatch.proposedPatch.diff);
-  } catch (error) {
-    return {
-      truePositives: 0,
-      falsePositives: 1,
-      falseNegatives: 0,
-      trueNegatives: 0,
-      signals: [
-        {
-          outcome: 'false_positive',
-          matched: false,
-          reason: `Contender's proposed_patch did not apply to a fresh checkout of ${metadata.vulnerableCommit}: ${error instanceof Error ? error.message : String(error)}`,
-          metadata: signalMetadata,
-        },
-      ],
-    };
-  }
+  let lastFailureReason = '';
+  for (const finding of findingsWithPatch) {
+    const diff = finding.proposedPatch!.diff;
 
-  try {
-    const result = await verifier({ codebaseDir: patchedDir });
-    if (result.vulnerable) {
+    let patchedDir: string;
+    try {
+      patchedDir = await applyDiffToFreshCopy(codebaseDir, diff);
+    } catch (error) {
+      lastFailureReason = `Contender's proposed_patch did not apply to a fresh checkout of ${metadata.vulnerableCommit}: ${error instanceof Error ? error.message : String(error)}`;
+      continue;
+    }
+
+    try {
+      const result = await verifier({ codebaseDir: patchedDir });
+      if (result.vulnerable) {
+        lastFailureReason = `Contender's patch applied but the vulnerability still reproduces: ${result.detail}`;
+        continue;
+      }
       return {
-        truePositives: 0,
-        falsePositives: 1,
+        truePositives: 1,
+        falsePositives: 0,
         falseNegatives: 0,
         trueNegatives: 0,
+        dollarValue: metadata.dollarValue,
         signals: [
           {
-            outcome: 'false_positive',
-            matched: false,
-            reason: `Contender's patch applied but the vulnerability still reproduces: ${result.detail}`,
+            outcome: 'true_positive',
+            matched: true,
+            reason: `Contender's patch applied and the vulnerability no longer reproduces: ${result.detail}`,
             metadata: signalMetadata,
           },
         ],
       };
+    } finally {
+      await rm(patchedDir, { recursive: true, force: true });
     }
-    return {
-      truePositives: 1,
-      falsePositives: 0,
-      falseNegatives: 0,
-      trueNegatives: 0,
-      dollarValue: metadata.dollarValue,
-      signals: [
-        {
-          outcome: 'true_positive',
-          matched: true,
-          reason: `Contender's patch applied and the vulnerability no longer reproduces: ${result.detail}`,
-          metadata: signalMetadata,
-        },
-      ],
-    };
-  } finally {
-    await rm(patchedDir, { recursive: true, force: true });
   }
+
+  return {
+    truePositives: 0,
+    falsePositives: 1,
+    falseNegatives: 0,
+    trueNegatives: 0,
+    signals: [{ outcome: 'false_positive', matched: false, reason: lastFailureReason, metadata: signalMetadata }],
+  };
 }
 
 async function scoreExploit(metadata: BountyBenchTaskMetadata, claim: ContenderClaim): Promise<OracleScore> {

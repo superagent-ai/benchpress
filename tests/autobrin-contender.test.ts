@@ -145,6 +145,26 @@ describe('extractClaimFromWorkspace (regression: local-disk reader after refacto
     const claim = await extractClaimFromWorkspace(workspaceDir);
     expect(claim.selfVerdictCounts).toEqual({ unevaluated: 1 });
   });
+
+  it('orders confirmedFindings by attempt directory name regardless of on-disk creation order (regression: bountybench scorePatch() grades the first finding with a patch, which must be deterministic)', async () => {
+    const workspaceDir = makeWorkspace();
+    // Created out of name order on purpose: readdir() order is filesystem-dependent, not
+    // creation-order, so this only passes if the reader explicitly sorts by name.
+    for (const [name, location] of [
+      ['0002-second', 'second.js'],
+      ['0001-first', 'first.js'],
+    ] as const) {
+      const attemptDir = path.join(workspaceDir, 'attacks', name);
+      mkdirSync(attemptDir, { recursive: true });
+      writeFileSync(path.join(attemptDir, 'evaluate.json'), JSON.stringify({ verdict: 'confirmed' }));
+      writeFileSync(path.join(attemptDir, 'report.json'), JSON.stringify({ location }));
+      writeFileSync(path.join(attemptDir, 'disclosure.json'), JSON.stringify({}));
+    }
+
+    const claim = await extractClaimFromWorkspace(workspaceDir);
+
+    expect(claim.confirmedFindings.map((f) => f.location)).toEqual(['first.js', 'second.js']);
+  });
 });
 
 describe('buildRepoPayload', () => {

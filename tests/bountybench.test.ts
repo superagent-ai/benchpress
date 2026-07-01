@@ -310,6 +310,52 @@ describe('bountybench Patch lane scoring (scorePatch / score())', () => {
     expect(score).toMatchObject({ truePositives: 1, falsePositives: 0, dollarValue: 31.25 });
     expect(score.signals[0]?.outcome).toBe('true_positive');
   });
+
+  it('falls through to a later confirmed finding\'s patch when an earlier one fails to apply (regression: previously only ever graded the first)', async () => {
+    setupMock.ensureBountyCodebase.mockResolvedValueOnce('/fake/zipp-codebase');
+    patchVerifiersMock.applyDiffToFreshCopy
+      .mockRejectedValueOnce(new Error('git apply failed (exit 1): patch does not apply'))
+      .mockResolvedValueOnce('/fake/zipp-patched-2');
+    patchVerifiersMock.resolvePatchVerifier.mockReturnValueOnce(async () => ({ vulnerable: false, detail: 'fixed for real' }));
+    const claim: ContenderClaim = {
+      confirmedFindings: [
+        { verdict: 'confirmed', proposedPatch: { summary: 'bad patch', diff: 'not a real diff', files: ['zipp/__init__.py'] } },
+        { verdict: 'confirmed', proposedPatch: { summary: 'good patch', diff: 'diff --git a/x b/x', files: ['zipp/__init__.py'] } },
+      ],
+      selfVerdictCounts: { confirmed: 2 },
+      triageCounts: {},
+    };
+    const callsBefore = patchVerifiersMock.applyDiffToFreshCopy.mock.calls.length;
+
+    const score = await bountyBenchAdapter.score({ task: zippTask, target: zippTarget, claim });
+
+    expect(score).toMatchObject({ truePositives: 1, falsePositives: 0, dollarValue: 31.25 });
+    expect(score.signals[0]?.outcome).toBe('true_positive');
+    // Both candidates were tried (not just the first): proves the fallthrough actually happened
+    // rather than e.g. the mock rejection being silently swallowed elsewhere.
+    expect(patchVerifiersMock.applyDiffToFreshCopy.mock.calls.length - callsBefore).toBe(2);
+  });
+
+  it('scores a false positive only after every confirmed finding\'s patch fails, citing the last failure', async () => {
+    setupMock.ensureBountyCodebase.mockResolvedValueOnce('/fake/zipp-codebase');
+    patchVerifiersMock.applyDiffToFreshCopy
+      .mockRejectedValueOnce(new Error('git apply failed (exit 1): patch does not apply'))
+      .mockResolvedValueOnce('/fake/zipp-patched-2');
+    patchVerifiersMock.resolvePatchVerifier.mockReturnValueOnce(async () => ({ vulnerable: true, detail: 'still hangs' }));
+    const claim: ContenderClaim = {
+      confirmedFindings: [
+        { verdict: 'confirmed', proposedPatch: { summary: 'bad patch', diff: 'not a real diff', files: ['zipp/__init__.py'] } },
+        { verdict: 'confirmed', proposedPatch: { summary: 'also broken', diff: 'diff --git a/x b/x', files: ['zipp/__init__.py'] } },
+      ],
+      selfVerdictCounts: { confirmed: 2 },
+      triageCounts: {},
+    };
+
+    const score = await bountyBenchAdapter.score({ task: zippTask, target: zippTarget, claim });
+
+    expect(score).toMatchObject({ truePositives: 0, falsePositives: 1 });
+    expect(score.signals[0]?.reason).toMatch(/still reproduces/);
+  });
 });
 
 describe('bountybench score() exploit lane is unaffected by the Detect/Patch wiring above', () => {

@@ -230,6 +230,13 @@ async function ensureDependenciesInstalled(root: string): Promise<void> {
 async function readAttemptsFromLocalWorkspace(workspaceDir: string): Promise<AttemptRecord[]> {
   const attemptsDir = path.join(workspaceDir, 'attacks');
   const entries = await readdir(attemptsDir, { withFileTypes: true }).catch(() => []);
+  // `readdir`'s order is filesystem-dependent, not guaranteed to match attempt creation order --
+  // sort by name (attempt directories are numbered, e.g. `0001-slug`) so callers that care about
+  // attempt order (e.g. bountybench's scorePatch(), which grades the first attempt with a usable
+  // patch) get a deterministic result instead of one that can vary by OS/filesystem across
+  // otherwise-identical runs. Mirrors `buildReadAttemptsScript`'s `sorted(os.listdir(BASE))` for
+  // the sandbox transport, so both transports agree on attempt order.
+  entries.sort((a, b) => a.name.localeCompare(b.name));
   const attempts: AttemptRecord[] = [];
 
   for (const entry of entries) {
