@@ -36,7 +36,8 @@ export function listRunnableBenchmarks(): BenchmarkAdapter[] {
  * `src/benchmarks/cve-bench/adapter.ts`); it no longer appears here. */
 export const BENCHMARK_CAPABILITY_DEPENDENCIES: Record<string, string> = {
   cybergym: 'PoC-generation contributor skill + differential patched oracle',
-  bountybench: 'webapp + computer-use (exploit) / detect-only mode (detect)',
+  bountybench:
+    'score() requires detect-only mode (autobrin-flue#182, unmerged) for detect/patch; exploit lane is fully implemented',
   owasp:
     'score() requires detect-only mode (autobrin-flue#182, unmerged); setup/listTasks/standUpTarget are implemented',
   'repo-cve-smoke': 'repo modality only (dev-smoke lane; not for scientific reporting)',

@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { AgentRunner, BenchmarkTask, MatrixRunResult, RunContext, RunControls, TaskRunResult } from '../contenders/types.js';
+import type { AgentRunner, BenchmarkTask, MatrixRunResult, RunContext, RunControls, TargetHandle, TaskRunResult } from '../contenders/types.js';
 import type { BenchmarkAdapter } from '../benchmarks/types.js';
 import { resolveBenchmark } from '../benchmarks/registry.js';
 import { createContenders, type ContenderConfig } from '../contenders/registry.js';
@@ -40,11 +40,17 @@ export function assertSingleContenderForStatefulTarget(
 /**
  * Stands up one task's target, runs every contender against it, scores each,
  * and always tears the target down -- including when `standUpTarget` itself
- * succeeded but a contender run or `score()` threw afterward, so a real
- * Docker stack (cve-bench) can never leak past this call. Exported
- * standalone (accepts an already-resolved adapter/contenders rather than
- * reading the registries itself) so it's covered by a fast unit test with
- * fake adapter/contender doubles instead of real infra.
+ * throws after partially coming up (e.g. a Docker Compose stack that started
+ * but then failed a health/baseline check), not just when it succeeds and a
+ * later contender run or `score()` throws. `standUpTarget` itself is inside
+ * this try (not just the contender loop), so a real Docker stack (cve-bench,
+ * bountybench) can never leak past this call even on a partial failure --
+ * adapters that already clean up their own partial `standUpTarget` failures
+ * (e.g. cve-bench's own try/catch) still work fine here since `teardown()`
+ * is expected to be idempotent (a no-op once its target is already gone).
+ * Exported standalone (accepts an already-resolved adapter/contenders rather
+ * than reading the registries itself) so it's covered by a fast unit test
+ * with fake adapter/contender doubles instead of real infra.
  */
 export async function runTaskAcrossContenders(input: {
   adapter: BenchmarkAdapter;
@@ -54,8 +60,9 @@ export async function runTaskAcrossContenders(input: {
   context: RunContext;
 }): Promise<TaskRunResult> {
   const { adapter, task, contenders, controls, context } = input;
-  const target = await adapter.standUpTarget(task);
+  let target: TargetHandle;
   try {
+    target = await adapter.standUpTarget(task);
     const contenderResults: TaskRunResult['contenderResults'] = [];
     for (const contender of contenders) {
       const result = await contender.run({ task, target, controls, context });
@@ -97,6 +104,11 @@ export async function runMatrix(config: MatrixConfig): Promise<MatrixRunResult> 
     }
 
     for (const task of tasks) {
+      if (adapter.isScoreable && !adapter.isScoreable(task)) {
+        console.warn(`Skipping task "${task.id}" (${benchmarkId}): adapter.isScoreable() reports it cannot be scored yet.`);
+        continue;
+      }
+
       taskResults.push(await runTaskAcrossContenders({ adapter, task, contenders, controls: config.controls, context }));
     }
   }
@@ -165,6 +177,13 @@ export async function runSingle(input: {
   }
 
   const task = tasks[0]!;
+  if (adapter.isScoreable && !adapter.isScoreable(task)) {
+    throw new Error(
+      `Task "${task.id}" (${input.benchmarkId}) cannot be scored yet (adapter.isScoreable() returned false) -- ` +
+        'refusing to spend contender budget on an engagement whose result can never be scored. Pass --task to pick a different task.',
+    );
+  }
+
   const context: RunContext = { runId, resultsDir, engagementsDir };
   return runTaskAcrossContenders({ adapter, task, contenders: [input.contender], controls: input.controls, context });
 }

@@ -84,10 +84,10 @@ Registered in [`src/benchmarks/registry.ts`](src/benchmarks/registry.ts):
 | `repo-cve-smoke` | dev-smoke | **Runnable** | `repo` modality only — for harness/version testing, not scientific reporting |
 | `cve-bench` | scientific | **Runnable** (2/40 tasks verified) | — (unblocked; see [`src/benchmarks/cve-bench/README.md`](src/benchmarks/cve-bench/README.md)) |
 | `cybergym` | scientific | **Partial** (`setup`/`listTasks`/`standUpTarget` real; `score()` blocked) | PoC-generation skill + differential patched oracle |
-| `bountybench` | scientific | Stub | `webapp` + computer-use (exploit) / detect-only mode (detect) |
+| `bountybench` | scientific | **Partial** (Exploit lane real, 3-system subset) | Detect/Patch lanes need detect-only mode ([autobrin-flue#182](https://github.com/superagent-ai/autobrin-flue/issues/182)) |
 | `owasp` | scientific | **Partial** | `setup`/`listTasks`/`standUpTarget` implemented; `score()` blocked on detect-only mode ([autobrin-flue#182](https://github.com/superagent-ai/autobrin-flue/issues/182), unmerged) |
 
-Remaining scientific benchmarks (`bountybench`) stay stubbed until the corresponding capabilities land in autobrin-flue. CyberGym is a documented exception (see [superagent-ai/benchpress#16](https://github.com/superagent-ai/benchpress/issues/16)): task vendoring, real task listing, and dockerized target stand-up don't need the blocked capabilities, so they're implemented for real against a representative 5-task subset; only `score()` throws until [autobrin-flue#180](https://github.com/superagent-ai/autobrin-flue/issues/180)/[#181](https://github.com/superagent-ai/autobrin-flue/issues/181) land — see [`src/benchmarks/cybergym/README.md`](src/benchmarks/cybergym/README.md). `owasp` goes one step further — it vendors OWASP Benchmark for Java v1.2 and implements real CSV-based task listing today, with only the grader (`score()`) waiting on autobrin-flue#182. See [`src/benchmarks/owasp/README.md`](src/benchmarks/owasp/README.md).
+CVE-Bench is fully unblocked and implemented — see [`src/benchmarks/cve-bench/README.md`](src/benchmarks/cve-bench/README.md). CyberGym is a documented exception (see [superagent-ai/benchpress#16](https://github.com/superagent-ai/benchpress/issues/16)): task vendoring, real task listing, and dockerized target stand-up don't need the blocked capabilities, so they're implemented for real against a representative 5-task subset; only `score()` throws until [autobrin-flue#180](https://github.com/superagent-ai/autobrin-flue/issues/180)/[#181](https://github.com/superagent-ai/autobrin-flue/issues/181) land — see [`src/benchmarks/cybergym/README.md`](src/benchmarks/cybergym/README.md). `owasp` goes one step further — it vendors OWASP Benchmark for Java v1.2 and implements real CSV-based task listing today, with only the grader (`score()`) waiting on autobrin-flue#182. See [`src/benchmarks/owasp/README.md`](src/benchmarks/owasp/README.md). `bountybench`'s Exploit lane is implemented the same way and vendors 3 of ~25 real systems today — see [`src/benchmarks/bountybench/README.md`](src/benchmarks/bountybench/README.md) for exact coverage and why Detect/Patch remain blocked on the same autobrin-flue#182.
 
 ### Scientific: `cve-bench`
 
@@ -109,7 +109,7 @@ Small repo-modality lane scored by **fix-commit overlap** (external oracle, not 
 
 ```bash
 bench list
-bench run <benchmark> --contender <id> --model <model-id> [--flue-ref staging] [--task <id>]
+bench run <benchmark> --contender <id> --model <model-id> [--flue-ref staging] [--task <id>] [--max-engagement-cost-usd <n>] [--max-cycles <n>] [--contributors <n>]
   # pithos contender: [--provider <id>] [--sandbox-mode docker|local] [--max-findings <n>]
 bench matrix --config config/matrix.example.jsonc
 bench daytona run --ref staging --image <cu-image> --vision-model <model> --payload '<json>' [--snapshot <name>] [--keep-sandbox]

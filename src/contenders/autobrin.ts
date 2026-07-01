@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -184,6 +184,29 @@ export function computeClaimFromAttempts(attempts: AttemptRecord[]): ContenderCl
   return { confirmedFindings, selfVerdictCounts, triageCounts };
 }
 
+/**
+ * A checkout with no installed dependencies has no local `flue` binary, so a bare `npx flue ...`
+ * silently falls through to installing and running an unrelated, long-abandoned public npm
+ * package also named `flue` (a ~2015 Firebase/ES sync daemon) instead of failing loudly --
+ * producing a fast, wrong "the contender did nothing" result rather than an error. Discovered via
+ * a real end-to-end run against superagent-ai/benchpress#15's live BountyBench target; affects
+ * every fresh `ensureAutobrinCheckout()` clone (the common case, since `.cache/` is gitignored),
+ * not anything bountybench-specific. Only the `local` transport spawns `npx` directly (the
+ * `daytona` transport's sandbox bootstrap installs dependencies itself), so this is only called
+ * from `runViaLocalNpx`.
+ */
+async function ensureDependenciesInstalled(root: string): Promise<void> {
+  const installed = await access(path.join(root, 'node_modules')).then(
+    () => true,
+    () => false,
+  );
+  if (installed) return;
+  const { exitCode, stderr, stdout } = await runCommand('npm', ['install'], { cwd: root });
+  if (exitCode !== 0) {
+    throw new Error(`npm install failed in ${root} (exit ${exitCode}): ${stderr.trim() || stdout.trim()}`);
+  }
+}
+
 async function readAttemptsFromLocalWorkspace(workspaceDir: string): Promise<AttemptRecord[]> {
   const attemptsDir = path.join(workspaceDir, 'attacks');
   const entries = await readdir(attemptsDir, { withFileTypes: true }).catch(() => []);
@@ -342,6 +365,7 @@ async function runViaLocalNpx(input: RunInput): Promise<NormalizedResult> {
   const { contenderId, config, contributors, task, target, controls, context } = input;
   const started = Date.now();
   const checkout = await ensureAutobrinCheckout({ ref: config.ref, path: config.path });
+  await ensureDependenciesInstalled(checkout.root);
   const engagementDir = path.join(
     context.engagementsDir,
     `${slugify(contenderId)}_${slugify(task.benchmarkId)}_${slugify(task.id)}_${Date.now()}`,

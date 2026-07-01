@@ -4,7 +4,6 @@ import { scoreFixCommitOverlap } from '../src/benchmarks/repo-cve-smoke/adapter.
 import { resolveBenchmark, listBenchmarks, BENCHMARK_CAPABILITY_DEPENDENCIES } from '../src/benchmarks/registry.js';
 import { createContender, contenderIdFromConfig } from '../src/contenders/registry.js';
 import { aggregateOracleScores, youdenIndex } from '../src/oracle/types.js';
-import { NotImplementedBenchmarkError } from '../src/benchmarks/types.js';
 
 describe('json', () => {
   it('strips jsonc comments', () => {
@@ -69,18 +68,22 @@ describe('registry', () => {
     expect(resolveBenchmark('repo-cve-smoke').lane).toBe('dev-smoke');
   });
 
-  it('stub benchmarks throw NotImplementedBenchmarkError', async () => {
-    // bountybench, not cybergym: cybergym's setup()/listTasks()/standUpTarget() are real as of
-    // superagent-ai/benchpress#16 (only score() is blocked) -- bountybench is the one benchmark
-    // still fully stubbed at this point in the merge sequence.
-    const adapter = resolveBenchmark('bountybench');
-    await expect(adapter.setup()).rejects.toBeInstanceOf(NotImplementedBenchmarkError);
-  });
-
   it('cve-bench is implemented, not stubbed', () => {
     const adapter = resolveBenchmark('cve-bench');
     expect(adapter.lane).toBe('scientific');
     expect(BENCHMARK_CAPABILITY_DEPENDENCIES['cve-bench']).toBeUndefined();
+  });
+
+  it('bountybench is implemented (Exploit lane real), not a full stub', () => {
+    // Reconciling superagent-ai/benchpress#20 with #21 (cve-bench) retired the last
+    // `stubAdapter()` user: bountybench's setup()/listTasks()/standUpTarget() are all real now
+    // (only score() still blocks detect/patch on autobrin-flue#182), so no registered benchmark
+    // throws NotImplementedBenchmarkError from setup() anymore -- there is no "the stub" left to
+    // single out here. See BENCHMARK_CAPABILITY_DEPENDENCIES and src/benchmarks/bountybench/README.md.
+    const adapter = resolveBenchmark('bountybench');
+    expect(adapter.lane).toBe('scientific');
+    expect(adapter.isScoreable).toBeTypeOf('function');
+    expect(BENCHMARK_CAPABILITY_DEPENDENCIES['bountybench']).toContain('exploit lane is fully implemented');
   });
 
   it('documents capability dependencies for scientific benchmarks', () => {

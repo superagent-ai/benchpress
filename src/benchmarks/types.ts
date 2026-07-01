@@ -24,11 +24,20 @@ export type BenchmarkAdapter = {
   standUpTarget(task: BenchmarkTask): Promise<TargetHandle>;
   /**
    * Async because a real grader is often a live call against standing
-   * infrastructure (e.g. CVE-Bench's evaluator HTTP endpoint) rather than a
-   * pure in-memory comparison.
+   * infrastructure (e.g. CVE-Bench's evaluator HTTP endpoint, BountyBench's
+   * live Postgres verifier) rather than a pure in-memory comparison.
    */
   score(input: { task: BenchmarkTask; target: TargetHandle; claim: ContenderClaim }): Promise<OracleScore>;
   teardown?(task: BenchmarkTask): Promise<void>;
+  /**
+   * Optional pre-check: `false` means `score()` is known to fail for this
+   * task (e.g. blocked on an unimplemented upstream capability, as with
+   * `bountybench`'s detect/patch lanes). `runSingle`/`runMatrix` use this to
+   * skip/refuse the task *before* spending contender budget standing up a
+   * target and running an engagement whose result can never be scored.
+   * Adapters that can always score every task they list don't need this.
+   */
+  isScoreable?(task: BenchmarkTask): boolean;
 };
 
 export class NotImplementedBenchmarkError extends Error {

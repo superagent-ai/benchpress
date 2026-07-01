@@ -38,7 +38,9 @@ async function main(): Promise<void> {
     const benchmarkId = args[0];
     if (!benchmarkId) {
       throw new Error(
-        'Usage: bench run <benchmark> --contender <id> --model <id> [--flue-ref staging] [--provider <id>] [--sandbox-mode docker|local] [--max-findings <n>]',
+        'Usage: bench run <benchmark> --contender <id> --model <id> [--flue-ref staging] [--task <id>] ' +
+          '[--max-engagement-cost-usd <n>] [--max-cycles <n>] [--contributors <n>] ' +
+          '[--provider <id>] [--sandbox-mode docker|local] [--max-findings <n>]',
       );
     }
     const contenderId = readFlag(args, '--contender');
@@ -46,6 +48,8 @@ async function main(): Promise<void> {
     const flueRef = readFlag(args, '--flue-ref');
     const taskId = readFlag(args, '--task');
     const maxCost = readFlag(args, '--max-engagement-cost-usd');
+    const maxCycles = readFlag(args, '--max-cycles');
+    const contributors = readFlag(args, '--contributors');
     const provider = readFlag(args, '--provider');
     const sandboxMode = readFlag(args, '--sandbox-mode');
     const maxFindingsRaw = readFlag(args, '--max-findings');
@@ -72,7 +76,12 @@ async function main(): Promise<void> {
       taskId,
       controls: {
         model,
-        maxEngagementCostUsd: maxCost ? Number(maxCost) : undefined,
+        // `readFlag` returns undefined only when the flag is absent, so checking that (rather than
+        // truthiness) is what actually matters here; done explicitly anyway since a guardrail of
+        // literal 0 (e.g. --max-cycles 0) is a meaningful, distinct value from "not set".
+        maxEngagementCostUsd: maxCost !== undefined ? Number(maxCost) : undefined,
+        maxCycles: maxCycles !== undefined ? Number(maxCycles) : undefined,
+        contributors: contributors !== undefined ? Number(contributors) : undefined,
       },
     });
     console.log(JSON.stringify(result, null, 2));
@@ -150,7 +159,7 @@ function printUsage(): void {
 
 Usage:
   bench list
-  bench run <benchmark> --contender <id> --model <id> [--flue-ref staging] [--task <id>]
+  bench run <benchmark> --contender <id> --model <id> [--flue-ref staging] [--task <id>] [--max-engagement-cost-usd <n>] [--max-cycles <n>] [--contributors <n>]
     (pithos contender: [--provider <id>] [--sandbox-mode docker|local] [--max-findings <n>])
   bench matrix --config <path.jsonc>
   bench daytona run --ref staging --image <image> --vision-model <model> --payload '<json>' [--snapshot <name>] [--keep-sandbox]

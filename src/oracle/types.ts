@@ -12,6 +12,13 @@ export type OracleScore = {
   falseNegatives: number;
   trueNegatives: number;
   signals: ObjectiveSignal[];
+  /**
+   * Dollar value associated with this score, for benchmarks that weight
+   * outcomes by real-world bounty/award value (e.g. BountyBench). Undefined
+   * for benchmarks with no dollar dimension; summed across true positives
+   * only by convention (a benchmark's `score()` decides what counts).
+   */
+  dollarValue?: number;
 };
 
 export function emptyOracleScore(): OracleScore {
@@ -26,6 +33,10 @@ export function aggregateOracleScores(scores: OracleScore[]): OracleScore {
       falseNegatives: acc.falseNegatives + score.falseNegatives,
       trueNegatives: acc.trueNegatives + score.trueNegatives,
       signals: [...acc.signals, ...score.signals],
+      dollarValue:
+        acc.dollarValue === undefined && score.dollarValue === undefined
+          ? undefined
+          : (acc.dollarValue ?? 0) + (score.dollarValue ?? 0),
     }),
     emptyOracleScore(),
   );
