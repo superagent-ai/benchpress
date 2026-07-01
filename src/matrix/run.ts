@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { AgentRunner, MatrixRunResult, RunContext, RunControls, TaskRunResult } from '../contenders/types.js';
+import type { AgentRunner, BenchmarkTask, MatrixRunResult, RunContext, RunControls, TaskRunResult } from '../contenders/types.js';
+import type { BenchmarkAdapter } from '../benchmarks/types.js';
 import { resolveBenchmark } from '../benchmarks/registry.js';
 import { createContenders, type ContenderConfig } from '../contenders/registry.js';
 import { aggregateOracleScores } from '../oracle/types.js';
@@ -13,6 +14,65 @@ export type MatrixConfig = {
   controls: RunControls;
   taskFilter?: string[];
 };
+
+/**
+ * `runMatrix` fans one task's `standUpTarget()` result out to every
+ * configured contender. That's fine for a read-only target (a git checkout,
+ * unaffected by what a contender does to it) but not for a `statefulTarget`
+ * adapter (e.g. CVE-Bench): an earlier contender's own exploitation (DoS,
+ * RCE, admin login, DB writes, ...) permanently changes the live target a
+ * later contender would then be scored against. Exported standalone so it's
+ * covered by a fast unit test without needing to spin up real infra.
+ */
+export function assertSingleContenderForStatefulTarget(
+  adapter: Pick<BenchmarkAdapter, 'id' | 'statefulTarget'>,
+  contenders: readonly AgentRunner[],
+): void {
+  if (!adapter.statefulTarget || contenders.length <= 1) return;
+  throw new Error(
+    `${adapter.id} stands up one live, mutable target per task shared across every contender in this matrix run. ` +
+      `Running ${contenders.length} contenders (${contenders.map((c) => c.id).join(', ')}) against it would let an ` +
+      `earlier contender's exploitation (DoS, RCE, admin login, etc.) contaminate the state a later contender is ` +
+      `scored against. Run one contender per ${adapter.id} matrix invocation instead.`,
+  );
+}
+
+/**
+ * Stands up one task's target, runs every contender against it, scores each,
+ * and always tears the target down -- including when `standUpTarget` itself
+ * succeeded but a contender run or `score()` threw afterward, so a real
+ * Docker stack (cve-bench) can never leak past this call. Exported
+ * standalone (accepts an already-resolved adapter/contenders rather than
+ * reading the registries itself) so it's covered by a fast unit test with
+ * fake adapter/contender doubles instead of real infra.
+ */
+export async function runTaskAcrossContenders(input: {
+  adapter: BenchmarkAdapter;
+  task: BenchmarkTask;
+  contenders: readonly AgentRunner[];
+  controls: RunControls;
+  context: RunContext;
+}): Promise<TaskRunResult> {
+  const { adapter, task, contenders, controls, context } = input;
+  const target = await adapter.standUpTarget(task);
+  try {
+    const contenderResults: TaskRunResult['contenderResults'] = [];
+    for (const contender of contenders) {
+      const result = await contender.run({ task, target, controls, context });
+      const oracleScore = await adapter.score({ task, target, claim: result.claim });
+      const selfConfirmed = (result.claim.selfVerdictCounts.confirmed ?? 0) > 0;
+      const graderMatched = oracleScore.truePositives > 0;
+      contenderResults.push({
+        result,
+        oracleScore,
+        claimVsGraderGap: selfConfirmed !== graderMatched,
+      });
+    }
+    return { task, target, contenderResults };
+  } finally {
+    if (adapter.teardown) await adapter.teardown(task);
+  }
+}
 
 export async function runMatrix(config: MatrixConfig): Promise<MatrixRunResult> {
   const runId = `matrix_${Date.now()}`;
@@ -29,6 +89,7 @@ export async function runMatrix(config: MatrixConfig): Promise<MatrixRunResult> 
 
   for (const benchmarkId of config.benchmarks) {
     const adapter = resolveBenchmark(benchmarkId);
+    assertSingleContenderForStatefulTarget(adapter, contenders);
     await adapter.setup();
     let tasks = await adapter.listTasks();
     if (config.taskFilter?.length) {
@@ -36,24 +97,7 @@ export async function runMatrix(config: MatrixConfig): Promise<MatrixRunResult> 
     }
 
     for (const task of tasks) {
-      const target = await adapter.standUpTarget(task);
-      const controls = config.controls;
-      const contenderResults: TaskRunResult['contenderResults'] = [];
-
-      for (const contender of contenders) {
-        const result = await contender.run({ task, target, controls, context });
-        const oracleScore = adapter.score({ task, target, claim: result.claim });
-        const selfConfirmed = (result.claim.selfVerdictCounts.confirmed ?? 0) > 0;
-        const graderMatched = oracleScore.truePositives > 0;
-        contenderResults.push({
-          result,
-          oracleScore,
-          claimVsGraderGap: selfConfirmed !== graderMatched,
-        });
-      }
-
-      taskResults.push({ task, target, contenderResults });
-      if (adapter.teardown) await adapter.teardown(task);
+      taskResults.push(await runTaskAcrossContenders({ adapter, task, contenders, controls: config.controls, context }));
     }
   }
 
@@ -121,24 +165,6 @@ export async function runSingle(input: {
   }
 
   const task = tasks[0]!;
-  const target = await adapter.standUpTarget(task);
   const context: RunContext = { runId, resultsDir, engagementsDir };
-  const result = await input.contender.run({ task, target, controls: input.controls, context });
-  const oracleScore = adapter.score({ task, target, claim: result.claim });
-  const selfConfirmed = (result.claim.selfVerdictCounts.confirmed ?? 0) > 0;
-  const graderMatched = oracleScore.truePositives > 0;
-
-  if (adapter.teardown) await adapter.teardown(task);
-
-  return {
-    task,
-    target,
-    contenderResults: [
-      {
-        result,
-        oracleScore,
-        claimVsGraderGap: selfConfirmed !== graderMatched,
-      },
-    ],
-  };
+  return runTaskAcrossContenders({ adapter, task, contenders: [input.contender], controls: input.controls, context });
 }
