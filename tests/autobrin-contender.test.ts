@@ -131,6 +131,16 @@ describe('buildRepoPayload', () => {
     expect(payload.guardrails).toEqual({ maxEngagementCostUsd: 5, maxCycles: 1 });
     expect(payload.contributors).toBe(2);
   });
+
+  it('omits detectOnly entirely when the target does not request it (unchanged default behavior)', () => {
+    const payload = buildRepoPayload({ target, controls });
+    expect('detectOnly' in payload).toBe(false);
+  });
+
+  it('forwards target.detectOnly into the payload for classification benchmarks (e.g. owasp)', () => {
+    const payload = buildRepoPayload({ target: { ...target, detectOnly: true }, controls });
+    expect(payload.detectOnly).toBe(true);
+  });
 });
 
 describe('buildReadAttemptsScript', () => {

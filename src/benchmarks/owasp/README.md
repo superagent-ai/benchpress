@@ -4,7 +4,7 @@ Upstream: [OWASP-Benchmark/BenchmarkJava](https://github.com/OWASP-Benchmark/Ben
 
 Pinned via [`vendor.lock.json`](vendor.lock.json); `setup()` clones into `.cache/vendor/owasp` (same pattern as `cve-bench/setup.ts`).
 
-**Status: partially implemented.** `setup()`, `listTasks()`, and `standUpTarget()` are real and working. `score()` is blocked on [superagent-ai/autobrin-flue#182](https://github.com/superagent-ai/autobrin-flue/issues/182) ("Add detect-only mode and proposed_patch disclosure output"), which was still open/unmerged as of this adapter's implementation. `score()` throws `NotImplementedBenchmarkError` rather than faking a result.
+**Status: fully implemented.** `setup()`, `listTasks()`, `standUpTarget()`, and `score()` are all real. `score()` runs on [superagent-ai/autobrin-flue#182](https://github.com/superagent-ai/autobrin-flue/issues/182)'s detect-only mode, merged into `staging` (see "Scoring" below).
 
 ## Why Java v1.2, not Python v0.1
 
@@ -44,9 +44,24 @@ Confirmed 1:1 with source: exactly 2,740 CSV rows and exactly 2,740 `BenchmarkTe
 
 `sampleRepresentative()` takes the first 2 cases per (category, vulnerable) pair in ascending test-number order - 11 categories x 2 labels x 2 = **44 tasks**, deterministic (no randomness) and spot-checkable by hand. To scale up, raise the `perGroup` argument (e.g. `4` -> 88 tasks) or call `parseExpectedResultsCsv`/`readExpectedResults` directly for all 2,740.
 
-## When #182 lands
+## Scoring
 
-`score()` should: run AutoBrin's detect-only pass against the vendored repo/sha scoped to the task's `javaSourcePath` (already carried in `TargetHandle.metadata.changedPaths`, following the same convention `repo-cve-smoke` uses), map the confirmed/rejected verdict against `metadata.vulnerable` into `OracleScore`, and use `youdenIndex()` from `src/oracle/types.ts` for the summary statistic.
+`standUpTarget()` sets `TargetHandle.detectOnly: true`, which `buildRepoPayload()` (`src/contenders/autobrin.ts`) forwards into the engagement payload's `detectOnly` field. Detect-only mode stops AutoBrin's evaluation right after the adversarial gate (stage 4) with a fast `confirmed`/`rejected` verdict, instead of running full exploitation/triage/disclosure for every one of ~2,740 single-servlet test cases.
+
+`score()` (`scoreOwaspVerdict`) grades that verdict against `metadata.vulnerable` (from `expectedresults-1.2.csv`, parsed in [`tasks.ts`](tasks.ts)):
+
+| Ground truth (`vulnerable`) | Contender confirmed? | Outcome |
+| --- | --- | --- |
+| `true` | yes | true positive |
+| `true` | no | false negative |
+| `false` | yes | false positive |
+| `false` | no | true negative |
+
+"Confirmed" means at least one of `claim.confirmedFindings` looks relevant to this task's own servlet (`findingLooksRelevant`): its `location` overlaps `javaSourcePath`/`testName`, *or* it has no location at all. The "no location" fallback matters because the two contenders give genuinely asymmetric information: AutoBrin's detect-only mode stops right after the adversarial gate, before the exploitation/disclosure stages that would otherwise populate a finding's location, so every AutoBrin `ConfirmedFinding` here has `location: undefined` -- treating that as non-matching would silently score every true positive as a false negative. PITHOS's findings, by contrast, do carry real file paths. A live run surfaced exactly why this matters: scoring a single-servlet task, PITHOS (which scans the whole ~2,740-file vendored repo, not just that task's file) reported real but unrelated vulnerabilities elsewhere in the Benchmark's own test harness (hardcoded LDAP/keystore passwords) -- without the location check those would have been misattributed as a false positive for that unrelated task.
+
+Per-task `OracleScore`s aggregate across a run via the existing generic `aggregateOracleScores()`/`youdenIndex()` pipeline (`src/oracle/types.ts`, `src/matrix/report.ts`'s scorecard) -- no OWASP-specific reporting code needed.
+
+PITHOS needs no adapter-side changes: it never takes a `detectOnly`-shaped payload (`buildPithosArgs` in `contenders/pithos.ts` only needs `target.repo`/`target.sha`), and its own pipeline already produces a confirmed/false_positive/inconclusive verdict per run independent of AutoBrin's stage machinery.
 
 ## Verification performed
 

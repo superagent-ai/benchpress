@@ -86,6 +86,7 @@ export function buildRepoPayload(input: {
     model: input.controls.model,
     contributors: input.contributors ?? input.controls.contributors,
     ...buildGuardrails(input.controls),
+    ...(input.target.detectOnly !== undefined ? { detectOnly: input.target.detectOnly } : {}),
     resume: false,
   };
 }
