@@ -19,10 +19,11 @@
 import { fileURLToPath } from 'node:url';
 import { Image } from '@daytona/sdk';
 import {
+  applyAutoStopSafetyNet,
+  AUTO_STOP_SAFETY_NET_MINUTES,
   createDaytonaClient,
   createSandbox,
   deleteDaytonaSandbox,
-  disableSandboxAutoStop,
 } from '../src/daytona/client.js';
 import { ensureComputerUseAssets } from '../src/daytona/assets.js';
 
@@ -93,12 +94,12 @@ async function main(): Promise<void> {
   const sandbox = await createSandbox(daytona, {
     kind: 'image',
     image: buildNode22BookwormComputerUseImage(),
-    autoStopInterval: 0,
+    autoStopInterval: AUTO_STOP_SAFETY_NET_MINUTES,
   });
 
   try {
     console.error(`Sandbox created: ${sandbox.id}`);
-    await disableSandboxAutoStop(sandbox);
+    await applyAutoStopSafetyNet(sandbox);
 
     const node = await sandbox.process.executeCommand('node --version', '/', undefined, 15);
     console.error(`node --version -> ${node.result.trim()} (exit ${node.exitCode})`);
