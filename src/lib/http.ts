@@ -21,13 +21,14 @@ export async function sha256File(filePath: string): Promise<string> {
 }
 
 export type EnsureFileDownloadedOptions = {
-  /** Expected sha256 of the downloaded file. Verified after download; mismatches throw. */
+  /** Expected sha256 of the downloaded file. A freshly-downloaded mismatch throws (real corruption/tampering). */
   expectedSha256?: string;
 };
 
 /**
- * Downloads `url` to `destPath` unless it already exists (content-addressed
- * vendor caches are immutable, so presence alone is a valid cache hit).
+ * Downloads `url` to `destPath` unless a cached copy already matches
+ * `expectedSha256` (content-addressed vendor caches are immutable, so a
+ * hash match -- not mere presence -- is what makes a cache hit valid).
  * Downloads to a `.part` sibling first so a killed process never leaves a
  * corrupt file at `destPath`.
  */
@@ -37,8 +38,14 @@ export async function ensureFileDownloaded(
   options: EnsureFileDownloadedOptions = {},
 ): Promise<string> {
   if (await pathExists(destPath)) {
-    if (options.expectedSha256) await assertSha256(destPath, options.expectedSha256, url);
-    return destPath;
+    if (!options.expectedSha256 || (await sha256File(destPath)) === options.expectedSha256) {
+      return destPath;
+    }
+    // Stale cache, not corruption: a pinned checksum (e.g. tasks.jsonc's
+    // repoVulSha256) changed since this file was downloaded. Treat it as a
+    // cache miss and re-download instead of failing forever until someone
+    // manually deletes it.
+    await unlink(destPath).catch(() => undefined);
   }
 
   await mkdir(path.dirname(destPath), { recursive: true });
@@ -51,19 +58,13 @@ export async function ensureFileDownloaded(
   await pipeline(Readable.fromWeb(response.body as never), createWriteStream(tmpPath));
 
   if (options.expectedSha256) {
-    await assertSha256(tmpPath, options.expectedSha256, url).catch(async (error) => {
+    const actual = await sha256File(tmpPath);
+    if (actual !== options.expectedSha256) {
       await unlink(tmpPath).catch(() => undefined);
-      throw error;
-    });
+      throw new Error(`Checksum mismatch for ${url}: expected sha256 ${options.expectedSha256}, got ${actual}`);
+    }
   }
 
   await rename(tmpPath, destPath);
   return destPath;
-}
-
-async function assertSha256(filePath: string, expected: string, sourceUrl: string): Promise<void> {
-  const actual = await sha256File(filePath);
-  if (actual !== expected) {
-    throw new Error(`Checksum mismatch for ${sourceUrl}: expected sha256 ${expected}, got ${actual}`);
-  }
 }
