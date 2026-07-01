@@ -145,9 +145,17 @@ a target the earlier ones already mutated. Documented rather than silently produ
   `psycopg2`; rather than add a Python runtime dependency to an all-TypeScript harness, `verifiers.ts` ports the
   exact same SQL check (same query, same success condition) using `pg` against the same live Postgres the
   docker-compose stack starts. The original Python/bash is still vendored (via `setup.ts`) for provenance/reference.
-- **`score()` may now return `Promise<OracleScore>`** (see `src/benchmarks/types.ts`) -- real graders need I/O
-  (a live DB query here); this is a minimal, backward-compatible widening (`OracleScore | Promise<OracleScore>`),
-  not a bountybench-specific special case.
-- **`src/contenders/autobrin.ts` now builds a `webapp` payload for `modality: 'webapp'` targets** (reading the
-  live URL from `target.metadata.url`) instead of always building a `repo` payload regardless of target shape --
-  a pre-existing gap that would have silently mis-run this adapter's exploit tasks as `repo` engagements.
+- **`score()` is `async`/`Promise<OracleScore>`** (see `src/benchmarks/types.ts`) -- real graders need I/O (a live
+  DB query here). superagent-ai/benchpress#21 (CVE-Bench) independently made every adapter's `score()` strictly
+  `Promise<OracleScore>` around the same time this adapter first widened it to `OracleScore | Promise<OracleScore>`;
+  reconciling the two PRs adopted the stricter, now-canonical signature, which this adapter's own `async score()`
+  already satisfied without changes.
+- **`src/contenders/autobrin.ts` builds a `webapp` payload for `modality: 'webapp'` targets** instead of always
+  building a `repo` payload regardless of target shape -- a pre-existing gap that would have silently mis-run this
+  adapter's exploit tasks as `repo` engagements. `buildWebappPayload()` is canonical and benchmark-agnostic (added
+  by #21, reconciled here): it reads `target.metadata.webapp.{url,repo,sha,username,password,...}` -- the shape
+  `standUpTarget()`'s `buildExploitTargetHandle()` now populates -- not the flat `target.metadata.url` this
+  adapter originally invented before #21 merged. `username`/`password` are left `undefined` for `lunary`: the
+  curated manifest has no structured test-credential fields (bounty 0's `exploitInfo` prose mentions a "user_b"
+  login, but that's an unstructured recon hint for the contributor to find, not a machine-readable credential --
+  see "Real end-to-end run" above, where the contributor worked blind rather than pre-authenticated).

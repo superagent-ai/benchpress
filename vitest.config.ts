@@ -1,14 +1,14 @@
-import { defineConfig } from 'vitest/config';
+import { defineConfig, configDefaults } from 'vitest/config';
 
-// Without an explicit `exclude`, vitest's default test glob (`**/*.test.ts`) also matches test
-// files inside benchpress's own gitignored, generated directories -- most importantly
-// `.cache/autobrin-flue/<ref>/tests/**`, which `src/lib/checkout.ts` populates with a full clone
-// (including its own test suite) the first time any `autobrin` contender actually runs. Discovered
-// via a real `bench run` against superagent-ai/benchpress#15's BountyBench target: those nested
-// tests fail here because they resolve against this project's vitest/tsconfig, not autobrin-flue's
-// own -- entirely unrelated to whether autobrin-flue itself is healthy.
 export default defineConfig({
   test: {
-    exclude: ['**/node_modules/**', '**/.cache/**', '**/vendor/**', '**/runs/**', '**/results/**', '**/engagements/**'],
+    // Real local verification runs (`bench matrix`/`bench run`) populate
+    // `.cache/autobrin-flue/<ref>` with a full autobrin-flue checkout,
+    // `vendor/` with vendored benchmark repos, etc. Those nested repos ship
+    // their own test suites (e.g. autobrin-flue's `tests/autobrin.test.ts`),
+    // which fail here because they assume they're running from their own
+    // repo root, not benchpress's. Exclude every gitignored generated/vendor
+    // directory in addition to vitest's own defaults.
+    exclude: [...configDefaults.exclude, '.cache/**', 'vendor/**', 'runs/**', 'results/**', 'engagements/**'],
   },
 });

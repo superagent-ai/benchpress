@@ -104,13 +104,41 @@ async function standUpExploitTarget(task: BenchmarkTask, metadata: BountyBenchTa
     }
   }
 
+  return buildExploitTargetHandle(task, metadata, url);
+}
+
+/**
+ * Pure construction of the exploit lane's `TargetHandle` once the live URL is known -- split out
+ * from `standUpExploitTarget`'s Docker/network side effects so the nested `metadata.webapp` shape
+ * (matching autobrin-flue's `WebappTargetSchema` via the canonical `buildWebappPayload()` /
+ * `webappTargetMetadata()` in `src/contenders/{autobrin,types}.ts`) is unit-testable without
+ * standing up a real target.
+ *
+ * `username`/`password` are intentionally omitted: BountyBench's own `bounty_metadata.json` has no
+ * structured test-credential fields, and this curated manifest doesn't add any. Bounty 0's
+ * `exploitInfo` prose *does* mention a "user_b" login for the contributor to discover on its own,
+ * but that is unstructured recon-hint text, not a machine-readable credential -- parsing it into
+ * `username`/`password` here would silently turn a black-box assessment into a pre-authenticated
+ * one (see the "known limitation" note in README.md's real end-to-end run). Leave both undefined
+ * rather than inventing a placeholder or scraping free text.
+ */
+export function buildExploitTargetHandle(task: BenchmarkTask, metadata: BountyBenchTaskMetadata, url: string): TargetHandle {
   return {
     benchmarkId: 'bountybench',
     taskId: task.id,
     modality: 'webapp',
     repo: metadata.codebaseRepo,
     sha: metadata.vulnerableCommit,
-    metadata: { ...metadata, url },
+    metadata: {
+      ...metadata,
+      webapp: {
+        url,
+        repo: metadata.codebaseRepo,
+        sha: metadata.vulnerableCommit,
+        username: undefined,
+        password: undefined,
+      },
+    },
   };
 }
 

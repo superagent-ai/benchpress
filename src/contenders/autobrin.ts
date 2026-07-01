@@ -2,6 +2,7 @@ import { access, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import type { AgentRunner, BenchmarkTask, ContenderClaim, ConfirmedFinding, NormalizedResult, RunContext, RunControls, TargetHandle } from './types.js';
+import { webappTargetMetadata } from './types.js';
 import { ensureAutobrinCheckout } from '../lib/checkout.js';
 import { readJson, slugify } from '../lib/json.js';
 import { runCommand } from '../lib/git.js';
@@ -63,10 +64,11 @@ export function buildRepoPayload(input: {
 }
 
 /**
- * Builds a webapp-modality payload from a `TargetHandle`. The live URL to
- * attack has no first-class `TargetHandle` field (the type is shared across
- * repo/webapp/model modalities), so webapp adapters put it in
- * `target.metadata.url` by convention -- see `bountybench`'s exploit lane.
+ * Builds a `modality: "webapp"` engagement payload from a benchmark-agnostic
+ * `TargetHandle`. Any webapp-based benchmark adapter (CVE-Bench, BountyBench)
+ * populates `target.metadata.webapp` with the canonical field names from
+ * autobrin-flue's `WebappTargetSchema` (see `docs/modalities.md` on
+ * `staging`); this function never references a specific benchmark.
  */
 export function buildWebappPayload(input: {
   target: TargetHandle;
@@ -74,15 +76,26 @@ export function buildWebappPayload(input: {
   workspaceRoot: string;
   contributors?: number;
 }): Record<string, unknown> {
-  const url = input.target.metadata?.url;
-  if (typeof url !== 'string' || !url.trim()) {
+  const webapp = webappTargetMetadata(input.target);
+  if (!webapp) {
     throw new Error(
-      `webapp target for task ${input.target.taskId} is missing a "url" string in target.metadata; standUpTarget() must set it`,
+      `webapp target ${input.target.benchmarkId}/${input.target.taskId} is missing metadata.webapp.url`,
     );
   }
   return {
     modality: 'webapp',
-    target: { url },
+    target: {
+      url: webapp.url,
+      repo: webapp.repo,
+      sha: webapp.sha,
+      username: webapp.username,
+      password: webapp.password,
+      role: webapp.role,
+      outboundServiceUrl: webapp.outboundServiceUrl,
+      proofUploadingUrl: webapp.proofUploadingUrl,
+      secret: webapp.secret,
+      secretUploadingUrl: webapp.secretUploadingUrl,
+    },
     workspaceRoot: input.workspaceRoot,
     model: input.controls.model,
     contributors: input.contributors ?? input.controls.contributors,
@@ -91,13 +104,15 @@ export function buildWebappPayload(input: {
   };
 }
 
-function buildEngagementPayload(input: {
-  target: TargetHandle;
-  controls: RunControls;
-  workspaceRoot: string;
-  contributors?: number;
-}): Record<string, unknown> {
-  return input.target.modality === 'webapp' ? buildWebappPayload(input) : buildRepoPayload(input);
+/**
+ * Flue's CLI renamed `flue run`'s payload flag from `--payload` to `--input`
+ * (see `npx flue run --help`) -- this was silently broken for every autobrin
+ * contender run until surfaced while verifying the cve-bench adapter against
+ * a real `staging` engagement. Kept as its own function so the exact flag
+ * name is covered by a fast, spawn-free unit test.
+ */
+export function buildFlueRunArgs(workflowName: string, payload: Record<string, unknown>): string[] {
+  return ['flue', 'run', workflowName, '--target', 'node', '--input', JSON.stringify(payload)];
 }
 
 export async function extractClaimFromWorkspace(workspaceDir: string): Promise<ContenderClaim> {
@@ -185,22 +200,16 @@ export function createAutobrinRunner(options: AutobrinRunOptions): AgentRunner {
         });
       }
 
-      const payload = buildEngagementPayload({
-        target,
-        controls,
-        workspaceRoot,
-        contributors: options.contributors,
-      });
+      const payload =
+        target.modality === 'webapp'
+          ? buildWebappPayload({ target, controls, workspaceRoot, contributors: options.contributors })
+          : buildRepoPayload({ target, controls, workspaceRoot, contributors: options.contributors });
 
       const stdoutPath = path.join(context.resultsDir, `${slugify(contenderId)}_${slugify(task.id)}.stdout.log`);
       const stderrPath = path.join(context.resultsDir, `${slugify(contenderId)}_${slugify(task.id)}.stderr.log`);
       await mkdir(context.resultsDir, { recursive: true });
 
-      // @flue/cli's `run` command takes `--input <json>`, not `--payload` -- confirmed against the
-      // real installed CLI (`flue run --help`) via a live run against superagent-ai/benchpress#15's
-      // BountyBench target; the old flag name silently no-opped (`flue run` printed its usage and
-      // exited 1) rather than erroring on an engagement it never actually started.
-      const args = ['flue', 'run', 'engagement', '--target', 'node', '--input', JSON.stringify(payload)];
+      const args = buildFlueRunArgs('engagement', payload);
       const proc = spawn('npx', args, { cwd: checkout.root, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
       const [stdout, stderr, exitCode] = await collect(proc);
       await writeFile(stdoutPath, stdout, 'utf8');

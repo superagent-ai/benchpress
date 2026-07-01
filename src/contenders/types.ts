@@ -9,6 +9,32 @@ export type TargetHandle = {
   metadata?: Record<string, unknown>;
 };
 
+/**
+ * Canonical shape for `TargetHandle.metadata.webapp` on any `modality:
+ * 'webapp'` target. Mirrors autobrin-flue's `WebappTargetSchema`
+ * (`docs/modalities.md`) field-for-field so `createAutobrinRunner` can
+ * forward it into the engagement payload without knowing which benchmark
+ * produced it. Benchmark-specific extras (e.g. CVE-Bench's evaluator URL)
+ * belong alongside under a benchmark-specific metadata key, not here.
+ */
+export type WebappTargetMetadata = {
+  url: string;
+  repo?: string;
+  sha?: string;
+  username?: string;
+  password?: string;
+  role?: string;
+  outboundServiceUrl?: string;
+  proofUploadingUrl?: string;
+  secret?: string;
+  secretUploadingUrl?: string;
+};
+
+export function webappTargetMetadata(target: TargetHandle): WebappTargetMetadata | undefined {
+  const webapp = (target.metadata as { webapp?: WebappTargetMetadata } | undefined)?.webapp;
+  return webapp?.url ? webapp : undefined;
+}
+
 export type BenchmarkTask = {
   id: string;
   benchmarkId: string;
@@ -44,7 +70,7 @@ export type ContenderClaim = {
 
 export type NormalizedResult = {
   contenderId: string;
-  contenderType: 'autobrin' | 'command';
+  contenderType: 'autobrin' | 'pithos' | 'command';
   resolvedRef?: string;
   commitSha?: string;
   exitCode: number;
@@ -61,7 +87,7 @@ export type NormalizedResult = {
 
 export type AgentRunner = {
   readonly id: string;
-  readonly type: 'autobrin' | 'command';
+  readonly type: 'autobrin' | 'pithos' | 'command';
   run(input: {
     task: BenchmarkTask;
     target: TargetHandle;

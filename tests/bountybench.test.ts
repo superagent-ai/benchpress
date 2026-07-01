@@ -3,6 +3,7 @@ import { aggregateOracleScores } from '../src/oracle/types.js';
 import { buildRepoPayload, buildWebappPayload } from '../src/contenders/autobrin.js';
 import type { TargetHandle } from '../src/contenders/types.js';
 import { resolveVerifier } from '../src/benchmarks/bountybench/verifiers.js';
+import type { BountyBenchTaskMetadata } from '../src/benchmarks/bountybench/types.js';
 
 const gitMock = vi.hoisted(() => ({ git: vi.fn() }));
 vi.mock('../src/lib/git.js', async (importOriginal) => ({
@@ -10,7 +11,7 @@ vi.mock('../src/lib/git.js', async (importOriginal) => ({
   git: gitMock.git,
 }));
 
-const { bountyBenchAdapter, buildExploitOracleScore, BountyBenchScoreBlockedError } = await import(
+const { bountyBenchAdapter, buildExploitOracleScore, buildExploitTargetHandle, BountyBenchScoreBlockedError } = await import(
   '../src/benchmarks/bountybench/adapter.js'
 );
 const allTasks = await bountyBenchAdapter.listTasks();
@@ -217,26 +218,57 @@ describe('oracle dollarValue aggregation', () => {
   });
 });
 
-describe('autobrin contender payload dispatch (webapp vs repo)', () => {
+describe('bountybench exploit target -> canonical autobrin webapp payload (nested metadata.webapp shape)', () => {
+  // superagent-ai/benchpress#21 (cve-bench) made `buildWebappPayload()` canonical and benchmark-agnostic:
+  // it reads `target.metadata.webapp.{url,repo,sha,username,password,...}` (matching autobrin-flue's
+  // `WebappTargetSchema`), not the old flat `target.metadata.url` this adapter used to write. These tests
+  // cover the reconciled integration end-to-end without standing up real Docker/Postgres infra.
+  const metadata = allTasks.find((t) => t.id === 'lunary-0-exploit')!.metadata as BountyBenchTaskMetadata;
+  const task = { id: 'lunary-0-exploit', benchmarkId: 'bountybench', metadata };
   const controls = { model: 'kimi-azure/kimi-k2.6', maxEngagementCostUsd: 1.5 };
 
-  it('builds a webapp payload from target.metadata.url', () => {
-    const target: TargetHandle = {
+  it('buildExploitTargetHandle nests url/repo/sha under metadata.webapp, not the old flat metadata.url', () => {
+    const target = buildExploitTargetHandle(task, metadata, 'http://localhost:3333');
+
+    expect(target).toMatchObject({
       benchmarkId: 'bountybench',
       taskId: 'lunary-0-exploit',
       modality: 'webapp',
-      metadata: { url: 'http://localhost:3333' },
-    };
+      repo: 'https://github.com/cy-suite/lunary.git',
+      sha: 'fc959987f3b2cfba25c847ffdba6ac820af154b4',
+    });
+    expect((target.metadata as { url?: unknown }).url).toBeUndefined();
+    expect(target.metadata).toMatchObject({
+      webapp: {
+        url: 'http://localhost:3333',
+        repo: 'https://github.com/cy-suite/lunary.git',
+        sha: 'fc959987f3b2cfba25c847ffdba6ac820af154b4',
+      },
+    });
+  });
+
+  it('does not invent username/password (no structured test-credential field in the curated manifest)', () => {
+    const target = buildExploitTargetHandle(task, metadata, 'http://localhost:3333');
+    const webapp = (target.metadata as { webapp: { username?: string; password?: string } }).webapp;
+    expect(webapp.username).toBeUndefined();
+    expect(webapp.password).toBeUndefined();
+  });
+
+  it('feeds directly into the canonical buildWebappPayload() from src/contenders/autobrin.ts', () => {
+    const target = buildExploitTargetHandle(task, metadata, 'http://localhost:3333');
     const payload = buildWebappPayload({ target, controls, workspaceRoot: '/tmp/ws' });
-    expect(payload).toMatchObject({ modality: 'webapp', target: { url: 'http://localhost:3333' } });
+
+    expect(payload).toMatchObject({
+      modality: 'webapp',
+      target: {
+        url: 'http://localhost:3333',
+        repo: 'https://github.com/cy-suite/lunary.git',
+        sha: 'fc959987f3b2cfba25c847ffdba6ac820af154b4',
+      },
+    });
   });
 
-  it('throws a clear error when a webapp target is missing metadata.url', () => {
-    const target: TargetHandle = { benchmarkId: 'bountybench', taskId: 'x', modality: 'webapp' };
-    expect(() => buildWebappPayload({ target, controls, workspaceRoot: '/tmp/ws' })).toThrow(/metadata/);
-  });
-
-  it('still builds a repo payload for repo-modality targets', () => {
+  it('still builds a repo payload for repo-modality (detect/patch) targets', () => {
     const target: TargetHandle = { benchmarkId: 'bountybench', taskId: 'x', modality: 'repo', repo: 'owner/repo', sha: 'abc' };
     const payload = buildRepoPayload({ target, controls, workspaceRoot: '/tmp/ws' });
     expect(payload).toMatchObject({ modality: 'repo', repo: 'owner/repo', sha: 'abc' });

@@ -31,10 +31,14 @@ export function listRunnableBenchmarks(): BenchmarkAdapter[] {
   return BENCHMARKS.filter((adapter) => adapter.lane === 'dev-smoke');
 }
 
+/** Benchmarks still stubbed pending an autobrin-flue capability. `cve-bench` was
+ * unblocked once `webapp` modality + computer-use confirmation shipped (see
+ * `src/benchmarks/cve-bench/adapter.ts`); it no longer appears here. */
 export const BENCHMARK_CAPABILITY_DEPENDENCIES: Record<string, string> = {
-  'cve-bench': 'webapp modality + cross-cutting computer-use confirmation',
   cybergym: 'PoC-generation contributor skill + differential patched oracle',
-  bountybench: 'webapp modality (exploit lane, implemented) / detect-only mode (detect+patch lanes, blocked on autobrin-flue#182)',
-  owasp: 'detect-only mode + CWE-label Youden scoring',
+  bountybench:
+    'score() requires detect-only mode (autobrin-flue#182, unmerged) for detect/patch; exploit lane is fully implemented',
+  owasp:
+    'score() requires detect-only mode (autobrin-flue#182, unmerged); setup/listTasks/standUpTarget are implemented',
   'repo-cve-smoke': 'repo modality only (dev-smoke lane; not for scientific reporting)',
 };
