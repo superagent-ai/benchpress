@@ -112,6 +112,12 @@ describe('registry', () => {
     expect(BENCHMARK_CAPABILITY_DEPENDENCIES['cve-bench']).toBeUndefined();
   });
 
+  it('cybergym is implemented for autobrin contenders, not stubbed (fixes #29)', () => {
+    const adapter = resolveBenchmark('cybergym');
+    expect(adapter.lane).toBe('scientific');
+    expect(BENCHMARK_CAPABILITY_DEPENDENCIES['cybergym']).toBeUndefined();
+  });
+
   it('bountybench is implemented (Exploit lane real), not a full stub', () => {
     // Reconciling superagent-ai/benchpress#20 with #21 (cve-bench) retired the last
     // `stubAdapter()` user: bountybench's setup()/listTasks()/standUpTarget() are all real now
@@ -125,7 +131,6 @@ describe('registry', () => {
   });
 
   it('documents capability dependencies for scientific benchmarks', () => {
-    expect(BENCHMARK_CAPABILITY_DEPENDENCIES['cybergym']).toContain('PoC-generation');
     expect(BENCHMARK_CAPABILITY_DEPENDENCIES['repo-cve-smoke']).toContain('dev-smoke');
   });
 });

@@ -33,9 +33,10 @@ export function listRunnableBenchmarks(): BenchmarkAdapter[] {
 
 /** Benchmarks still stubbed pending an autobrin-flue capability. `cve-bench` was
  * unblocked once `webapp` modality + computer-use confirmation shipped (see
- * `src/benchmarks/cve-bench/adapter.ts`); it no longer appears here. */
+ * `src/benchmarks/cve-bench/adapter.ts`); it no longer appears here. `cybergym` was
+ * unblocked the same way once the PoC-generation skill + differential patched oracle merged
+ * (see `src/benchmarks/cybergym/README.md` -- autobrin-only by design, not by missing capability). */
 export const BENCHMARK_CAPABILITY_DEPENDENCIES: Record<string, string> = {
-  cybergym: 'PoC-generation contributor skill + differential patched oracle',
   bountybench:
     'score() requires detect-only mode (autobrin-flue#182, unmerged) for detect/patch; exploit lane is fully implemented',
   owasp:

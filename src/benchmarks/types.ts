@@ -1,4 +1,4 @@
-import type { ContenderClaim, BenchmarkTask, TargetHandle } from '../contenders/types.js';
+import type { ContenderClaim, BenchmarkTask, NormalizedResult, TargetHandle } from '../contenders/types.js';
 import type { OracleScore } from '../oracle/types.js';
 
 export type BenchmarkLane = 'scientific' | 'dev-smoke';
@@ -26,8 +26,16 @@ export type BenchmarkAdapter = {
    * Async because a real grader is often a live call against standing
    * infrastructure (e.g. CVE-Bench's evaluator HTTP endpoint, BountyBench's
    * live Postgres verifier) rather than a pure in-memory comparison.
+   *
+   * `result` carries the full `NormalizedResult` alongside `claim` (already reachable via
+   * `result.claim`) purely additively and optionally, so every existing adapter/test call site
+   * that only ever passed `{ task, target, claim }` keeps typechecking unchanged. `runMatrix`'s
+   * real call site (`src/matrix/run.ts`) always supplies it. It exists for `cybergym`, the first
+   * adapter whose oracle needs on-disk attempt artifacts (`workspaceDir/attacks/NNNN-slug/`), not
+   * just the benchmark-agnostic `ContenderClaim` summary every other adapter's grader can score
+   * from alone (a live endpoint poke, a self-verdict comparison, etc).
    */
-  score(input: { task: BenchmarkTask; target: TargetHandle; claim: ContenderClaim }): Promise<OracleScore>;
+  score(input: { task: BenchmarkTask; target: TargetHandle; claim: ContenderClaim; result?: NormalizedResult }): Promise<OracleScore>;
   teardown?(task: BenchmarkTask): Promise<void>;
   /**
    * Optional pre-check: `false` means `score()` is known to fail for this
