@@ -2,10 +2,11 @@ import type { Sandbox } from '@daytona/sdk';
 import { checkComputerUseScreenshot } from './assets.js';
 import { DEFAULT_COMPUTER_USE_BASE_URL } from './constants.js';
 import {
+  applyAutoStopSafetyNet,
+  AUTO_STOP_SAFETY_NET_MINUTES,
   createDaytonaClient,
   createSandbox,
   deleteDaytonaSandbox,
-  disableSandboxAutoStop,
   type Env,
 } from './client.js';
 import { executeOptional } from './sandbox-exec.js';
@@ -54,17 +55,17 @@ export async function runDaytonaDoctor(options: DaytonaDoctorOptions): Promise<D
         ? {
             kind: 'snapshot',
             snapshot: options.snapshot,
-            autoStopInterval: 0,
+            autoStopInterval: AUTO_STOP_SAFETY_NET_MINUTES,
           }
         : {
             kind: 'image',
             image: options.image!,
-            autoStopInterval: 0,
+            autoStopInterval: AUTO_STOP_SAFETY_NET_MINUTES,
           },
     );
 
     console.error(`Daytona doctor sandbox created: ${sandbox.id}`);
-    await disableSandboxAutoStop(sandbox);
+    await applyAutoStopSafetyNet(sandbox);
 
     // cua-driver presence/daemon status is informational only (superagent-ai/benchpress#4): some
     // app-parity images install the CLI without a running daemon or a `start` subcommand, and some

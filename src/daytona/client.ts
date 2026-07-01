@@ -53,8 +53,22 @@ export async function deleteDaytonaSandbox(sandboxId: string, env: Env = process
   await sandbox.delete(120);
 }
 
-export async function disableSandboxAutoStop(
+/**
+ * Auto-stop interval (minutes) applied as a safety net after sandbox creation.
+ *
+ * Every sandbox lifecycle in this repo already deletes its sandbox in a
+ * `finally` block, so this is a backstop, not the primary cleanup path. It
+ * must not be 0 (disabled): a disabled auto-stop means an ungracefully killed
+ * process (e.g. `kill -9`, an OOM, a host crash) orphans the sandbox to run
+ * -- and bill -- indefinitely, since nothing else will ever stop it. An hour
+ * is long enough to never interrupt a legitimate engagement (`maxCycles`/
+ * `maxEngagementCostUsd` guardrails bound those), but short enough to cap
+ * the cost of a leaked sandbox if cleanup never runs.
+ */
+export const AUTO_STOP_SAFETY_NET_MINUTES = 60;
+
+export async function applyAutoStopSafetyNet(
   sandbox: { setAutostopInterval: (interval: number) => Promise<void> },
 ): Promise<void> {
-  await sandbox.setAutostopInterval(0);
+  await sandbox.setAutostopInterval(AUTO_STOP_SAFETY_NET_MINUTES);
 }

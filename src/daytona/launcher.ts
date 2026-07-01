@@ -2,10 +2,11 @@ import type { Sandbox } from '@daytona/sdk';
 import { ensureComputerUseAssets } from './assets.js';
 import { bootstrapAutobrinFlue, prepareRepoTarget, prepareWebappTarget } from './bootstrap.js';
 import {
+  applyAutoStopSafetyNet,
+  AUTO_STOP_SAFETY_NET_MINUTES,
   createDaytonaClient,
   createSandbox,
   deleteDaytonaSandbox,
-  disableSandboxAutoStop,
   type Env,
 } from './client.js';
 import { buildSandboxEnv } from './env.js';
@@ -56,18 +57,18 @@ export async function runDaytonaEngagement(options: DaytonaRunOptions): Promise<
             kind: 'snapshot',
             snapshot: options.snapshot,
             envVars: sandboxEnv,
-            autoStopInterval: 0,
+            autoStopInterval: AUTO_STOP_SAFETY_NET_MINUTES,
           }
         : {
             kind: 'image',
             image: options.image!,
             envVars: sandboxEnv,
-            autoStopInterval: 0,
+            autoStopInterval: AUTO_STOP_SAFETY_NET_MINUTES,
           },
     );
 
     console.error(`Daytona sandbox created: ${sandbox.id}`);
-    await disableSandboxAutoStop(sandbox);
+    await applyAutoStopSafetyNet(sandbox);
 
     await bootstrapAutobrinFlue(sandbox, {
       ref: sandboxEnv.AUTOBRIN_FLUE_REF,

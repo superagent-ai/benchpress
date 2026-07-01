@@ -8,10 +8,11 @@ import { checkComputerUseScreenshot, ensureComputerUseAssets } from '../src/dayt
 import { describeAutobrinFlueCloneFailure } from '../src/daytona/bootstrap.js';
 
 const clientMocks = vi.hoisted(() => ({
+  AUTO_STOP_SAFETY_NET_MINUTES: 60,
   createDaytonaClient: vi.fn(),
   createSandbox: vi.fn(),
   deleteDaytonaSandbox: vi.fn(),
-  disableSandboxAutoStop: vi.fn(),
+  applyAutoStopSafetyNet: vi.fn(),
 }));
 
 vi.mock('../src/daytona/client.js', () => clientMocks);
@@ -203,7 +204,7 @@ describe('runDaytonaDoctor (superagent-ai/benchpress#4)', () => {
   beforeEach(() => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     clientMocks.createDaytonaClient.mockReset().mockReturnValue({});
-    clientMocks.disableSandboxAutoStop.mockReset().mockResolvedValue(undefined);
+    clientMocks.applyAutoStopSafetyNet.mockReset().mockResolvedValue(undefined);
     clientMocks.deleteDaytonaSandbox.mockReset().mockResolvedValue(undefined);
     clientMocks.createSandbox.mockReset();
   });
