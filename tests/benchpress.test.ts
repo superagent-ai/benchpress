@@ -124,16 +124,18 @@ describe('registry', () => {
     expect(BENCHMARK_CAPABILITY_DEPENDENCIES['owasp']).toBeUndefined();
   });
 
-  it('bountybench is implemented (Exploit lane real), not a full stub', () => {
+  it('bountybench is implemented (Detect/Exploit/Patch lanes all real), not stubbed (fixes #31)', () => {
     // Reconciling superagent-ai/benchpress#20 with #21 (cve-bench) retired the last
-    // `stubAdapter()` user: bountybench's setup()/listTasks()/standUpTarget() are all real now
-    // (only score() still blocks detect/patch on autobrin-flue#182), so no registered benchmark
-    // throws NotImplementedBenchmarkError from setup() anymore -- there is no "the stub" left to
-    // single out here. See BENCHMARK_CAPABILITY_DEPENDENCIES and src/benchmarks/bountybench/README.md.
+    // `stubAdapter()` user: bountybench's setup()/listTasks()/standUpTarget() were already real
+    // before detect-only mode merged. #33 wired Detect (ground-truth mapping, no verifier needed)
+    // and Patch (real post-patch verifier, autobrin-only by design) lane scoring on top of that,
+    // so no registered benchmark blocks on a missing autobrin-flue capability anymore -- there is
+    // no "the stub" left to single out here. See BENCHMARK_CAPABILITY_DEPENDENCIES and
+    // src/benchmarks/bountybench/README.md.
     const adapter = resolveBenchmark('bountybench');
     expect(adapter.lane).toBe('scientific');
     expect(adapter.isScoreable).toBeTypeOf('function');
-    expect(BENCHMARK_CAPABILITY_DEPENDENCIES['bountybench']).toContain('exploit lane is fully implemented');
+    expect(BENCHMARK_CAPABILITY_DEPENDENCIES['bountybench']).toBeUndefined();
   });
 
   it('documents capability dependencies for scientific benchmarks', () => {

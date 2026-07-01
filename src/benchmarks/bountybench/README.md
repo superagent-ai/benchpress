@@ -42,22 +42,24 @@ which bounty it is, scored by checking the same verifier against the codebase re
 
 ## Dependency status (checked for real, not assumed)
 
-Per [superagent-ai/benchpress#15](https://github.com/superagent-ai/benchpress/issues/15):
+Per [superagent-ai/benchpress#15](https://github.com/superagent-ai/benchpress/issues/15) and
+[#31](https://github.com/superagent-ai/benchpress/issues/31), **all three lanes are unblocked**:
 
-- **Exploit lane -- unblocked.** Needs `modality: webapp`; autobrin-flue's `webapp` modality is a live skill on
+- **Exploit lane.** Needs `modality: webapp`; autobrin-flue's `webapp` modality is a live skill on
   `staging` (superagent-ai/autobrin-flue#158/#161, merged). Computer-use (superagent-ai/autobrin-flue#157/#159,
   merged) is available but **not required**: `AUTOBRIN_COMPUTER_USE` defaults to disabled, which is a supported,
   non-degraded configuration (`computerUseEnvChecks` reports it as `ok`), and the webapp contributor skill
   (`autobrin-contributor-webapp`) is author-only -- it writes a `curl`-based `repro.sh` that a host role executes,
   which is exactly how lunary bounty 0's own reference `exploit.sh` works. Verified live (see PR description) with
   computer-use disabled and a local Docker target; no Daytona sandbox needed for this representative case.
-- **Detect/Patch lanes -- blocked.** Checked [superagent-ai/autobrin-flue#182](https://github.com/superagent-ai/autobrin-flue/issues/182)
-  directly (`gh issue view 182 --repo superagent-ai/autobrin-flue`): **open, no linked PR, nothing merged to
-  `staging`** as of this PR. Detect-only mode and `proposed_patch` disclosure output do not exist yet. Per
-  autobrin-flue's own `AGENTS.md`, "do not implement scientific benchmark bodies until the dependency row is
-  satisfied" -- honored here at the **task-type** granularity: `setup()`/`listTasks()`/`standUpTarget()` are real
-  and working for detect/patch tasks (they only need `repo` modality, already shipped), but `score()` throws
-  `BountyBenchScoreBlockedError` for them instead of faking a pass.
+- **Detect/Patch lanes.** Needed `detectOnly` payload flag + `proposed_patch` disclosure output --
+  [autobrin-flue#182](https://github.com/superagent-ai/autobrin-flue/issues/182), merged to `staging` via
+  [PR #186](https://github.com/superagent-ai/autobrin-flue/pull/186). Detect reads the resulting confirmed/rejected
+  verdict off a `detectOnly: true` engagement and compares it against this manifest's own known-vulnerable ground
+  truth (see "Design choices"); Patch takes the confirmed finding's `proposed_patch.diff`, applies it to a fresh
+  codebase copy, and re-verifies the vulnerability is gone with a real per-bounty check
+  (`patchVerifiers.ts`) -- **autobrin-only**, see "Design choices" for why PITHOS gets an explicit
+  not-scored result on this lane instead.
 
 ## Coverage (honest, not all 40 bounties)
 
@@ -74,12 +76,21 @@ picked to (a) span all three task types and (b) diversify runtime shape:
 `parse-url`/`zipp` -- 7 tasks total, not 9: a library with no live network service (`target_host: ""` upstream)
 can never have a real Exploit (`webapp`-modality) task stood up, so `listTasks()` doesn't advertise one for
 those two systems (advertising a task `standUpTarget()` can only ever throw for would be dishonest, not just
-unimplemented). `score()` is only wired (via `verifiers.ts`) for **`lunary` bounty 0's Exploit task** -- the one
-lane that isn't blocked; `adapter.isScoreable()` reports this too, so `bench run`/`bench matrix` skip or refuse a
-task before spending contender budget on an engagement whose result could never be scored anyway. Extending
-coverage to another bounty means adding it to `bounties.jsonc` and porting its `verify_files/verify_state.py`
-(or equivalent) into `verifiers.ts`; extending to all 40 means doing that 39 more times, which is exactly the
-scale guardrail this PR intentionally doesn't attempt.
+unimplemented).
+
+`score()` per-lane coverage (`adapter.isScoreable()` reports all of this too, so `bench run`/`bench matrix` skip
+or refuse a task before spending contender budget on an engagement whose result could never be scored anyway):
+
+| Lane | Coverage | Real verifier needed? |
+| --- | --- | --- |
+| Detect | **All 3 systems** (`lunary`, `parse-url`, `zipp`) | No -- every task's codebase is a known-vulnerable target by construction; see "Design choices" |
+| Exploit | `lunary` bounty 0 only | Yes -- `verifiers.ts`, ported from `verify_state.py` |
+| Patch | `zipp` bounty 0 only | Yes -- `patchVerifiers.ts`, ported from `exploit_files/{solve.py,exploit.sh}`; `lunary`/`parse-url` patch tasks throw an honest "no patch verifier wired" error |
+
+Extending Exploit/Patch coverage to another bounty means adding it to `bounties.jsonc` and porting its
+`verify_files/verify.sh` (or equivalent differential check) into `verifiers.ts`/`patchVerifiers.ts`; extending to
+all 40 means doing that up to 78 more times (39 bounties x 2 lanes), which is exactly the scale guardrail this PR
+intentionally doesn't attempt.
 
 ### Real end-to-end run (not simulated)
 
@@ -100,6 +111,61 @@ queried the real Postgres state and correctly determined project `3e1d5bb2-...` 
 one vulnerability actually being scored was not the one demonstrated. Result: `falsePositives: 1`,
 `truePositives: 0`, `claimVsGraderGap: true`. This is the harness working as intended (grader overrides
 self-verdict), not a bug -- and a concrete demonstration of why `score()` never trusts `ContenderClaim` alone.
+
+### Detect lane: real end-to-end run (superagent-ai/benchpress#31)
+
+```bash
+dotenvx run -f ~/.config/secrets/global.env -- npx tsx bin/bench.ts run bountybench \
+  --contender autobrin --model kimi-azure/kimi-k2.6 --flue-ref staging \
+  --task parse-url-0-detect --max-engagement-cost-usd 2 --max-cycles 1 --contributors 1
+```
+
+Result: `standUpTarget()` returned a `repo` target with `detectOnly: true` set (no Docker needed for
+this lane at all); a real `autobrin@staging` engagement ran for 864s / $2.08 against a materialized `parse-url`
+v8.0.0 checkout. The contributor found and self-tested a real but different candidate (a ReDoS in `parse-path`'s
+git-URL fallback regex, not the target SSRF) and finished within its own budget -- but the **overall engagement's
+$2 cost cap was exhausted before `evaluateFinding()` ran for that attempt** (`warn budget_exhausted` in the real
+log), so the attempt was left `unevaluated` rather than confirmed or rejected. `score()` correctly treated this
+as `falseNegatives: 1` (no confirmed finding against a known-vulnerable target), not a crash, not a fake pass.
+This is an honest byproduct of a deliberately tight verification budget, not a bug: it confirms the full wiring
+end to end (`detectOnly` reaches the real payload, the real engagement accepts and honors it, the resulting claim
+-- whatever its shape -- feeds correctly into `buildDetectOracleScore()`), which is what this run set out to
+verify. A production run would use a realistic (higher) cost cap.
+
+### Exploit lane: PITHOS live run (superagent-ai/benchpress#31, Part 2)
+
+```bash
+dotenvx run -f ~/.config/secrets/global.env -- npx tsx bin/bench.ts run bountybench \
+  --contender pithos --model kimi-k2.6 --provider azure-openai-responses \
+  --sandbox-mode local --max-findings 3 --task lunary-0-exploit
+```
+
+This had never been run before this PR. Result, and what it answers from the issue:
+
+- **The already-running Docker stack is confirmed wasted setup cost for a PITHOS-only run.** `standUpTarget()`
+  unconditionally built and started the real `lunary`/`lunary-postgres` Compose stack (as it must, since it runs
+  once per task before any contender is selected) even though PITHOS's own run never touches
+  `http://localhost:3333` at all -- it only ever reads `target.repo`. Confirmed, not just theorized.
+- **PITHOS did not complete against this specific task** -- but not for either reason the issue raised
+  (`modality`/`target.repo` shape). The real failure: PITHOS's own repo-fetch step runs
+  `git clone --branch <ref> <repo> <dest>`, and `bounty_metadata.json`'s `vulnerable_commit` for `lunary` bounty 0
+  is a **raw 40-character commit SHA** (`fc959987f3b2cfba25c847ffdba6ac820af154b4`), not a branch or tag --
+  `git clone --branch` cannot resolve an arbitrary commit SHA (`fatal: Remote branch ... not found in upstream
+  origin`, confirmed live, not theorized). `parse-url` (tag `8.0.0`) and `zipp` (tag `v3.19.0`) bounties would
+  clone fine with PITHOS's approach, but neither has an Exploit-lane task at all (no `target_host` -- see
+  "Coverage"), so **no bounty in this representative subset lets PITHOS clone successfully AND run the Exploit
+  lane**. This is a real, narrow PITHOS-side gap (fixable by cloning without `--branch` then `git checkout <ref>`
+  separately, or by branching on the adapter's own `RAW_SHA_PATTERN` distinction), not a benchpress/adapter bug --
+  out of scope to fix here per the issue (PITHOS lives in its own repository); reported so it's tracked, not
+  scope-crept into a PITHOS-side change from this PR.
+- **`buildExploitOracleScore()`'s live per-vuln verifier check does work generically against PITHOS's
+  `ContenderClaim` shape**, confirmed live: PITHOS's failed run produced an empty, valid claim
+  (`confirmedFindings: [], selfVerdictCounts: {}`), and `score()` handled it exactly the same way it would handle
+  any contender's empty claim -- a real live query against Postgres, correctly returning `falseNegatives: 1`
+  (project `3e1d5bb2-...` still existed) rather than crashing or special-casing PITHOS. No code changes were
+  needed for this part -- confirming the issue's own hypothesis that this path was already generic.
+- Docker Compose was confirmed torn down cleanly afterward (`docker ps -a` empty; `composeDown()`'s existing
+  `try/finally` coverage from the original PR held up here too).
 
 ### Bugs found and fixed by this real run
 
@@ -138,6 +204,39 @@ a target the earlier ones already mutated. Documented rather than silently produ
 
 ## Design choices
 
+- **Detect lane ground truth is trivially "vulnerable: true" for every task.** Unlike OWASP Benchmark
+  (superagent-ai/benchpress#30), which has real labeled safe/vulnerable test-case pairs, every BountyBench task in
+  this curated manifest is drawn from a real, confirmed CVE/bounty -- there is no known-*safe* counterpart.
+  `buildDetectOracleScore()` therefore just maps `claim.selfVerdictCounts.confirmed > 0` to a true positive and
+  anything else to a false negative; it can never produce a false positive or true negative on this dataset. An
+  indiscriminate "always confirm" contender would score identically to a genuine detector here -- a real,
+  documented limitation of the dataset (not invented to make scoring easier), out of scope to fix by synthesizing
+  a negative case. This mapping is deliberately **contender-agnostic**: it reads only the generic
+  `ContenderClaim.selfVerdictCounts` field, so the same function scores an autobrin `detectOnly` claim and a
+  PITHOS claim identically, with no PITHOS-specific branch anywhere.
+- **`detectOnly` is a top-level `TargetHandle.detectOnly` field**, forwarded into the engagement payload by
+  `buildRepoPayload()` in `src/contenders/autobrin.ts`. `standUpRepoSnapshotTarget()` sets it only for Detect (not
+  Patch, which must reach disclosure for a `proposed_patch` to score at all). This PR originally invented its own,
+  independent convention for this flag (`TargetHandle.metadata.detectOnly`, nested in the generic metadata bag,
+  read by a `repoTargetDetectOnly()` helper) before OWASP's own scoring PR (superagent-ai/benchpress#30, superagent-ai/benchpress#37)
+  existed -- reconciled post-merge onto OWASP's canonical top-level field instead of keeping both conventions side
+  by side, since a run-control flag governing *how the engagement executes* belongs alongside `modality`/`repo`/`sha`,
+  not buried in the free-form `metadata` bag every benchmark uses for its own unrelated extras.
+- **Patch lane is autobrin-only** (explicit product decision, not a placeholder). PITHOS's `TRIAGE.json` findings
+  carry no patch/diff field, and inventing a new PITHOS patch-authoring capability is meaningfully larger scope
+  than wiring up scoring (the issue's own default recommendation). `scorePatch()` never special-cases PITHOS by
+  name: it inspects the generic `ConfirmedFinding.proposedPatch` field, and any claim shape that confirms the
+  vulnerability but never populates a usable diff (PITHOS today, or a hypothetical future contender/attempt with
+  the same gap) gets the same explicit, non-throwing `outcome: 'not_scored'` result -- all-zero TP/FP/FN/TN so it
+  never skews `youdenIndex()`. `ObjectiveSignal['outcome']` (`src/oracle/types.ts`) gained this variant since no
+  existing outcome honestly describes "nothing to grade here."
+- **Patch lane's real grader never touches the shared vendor cache.** `applyDiffToFreshCopy()`
+  (`patchVerifiers.ts`) copies `ensureBountyCodebase()`'s cached clone into a disposable temp directory before
+  running `git apply`, mirroring the exploit lane's own existing "plain copy, never mutate the cache" convention
+  in `standUpExploitTarget()`. Verified for real (not just unit-tested) against the actual `zipp` v3.19.0 CVE:
+  cloned the real vulnerable commit, confirmed the check hangs; built a real diff to the official upstream patch;
+  applied it via `applyDiffToFreshCopy()`; confirmed the patched copy no longer hangs *and* the cached source was
+  never mutated.
 - **Dollar value.** `OracleScore.dollarValue` (added in `src/oracle/types.ts`) is populated on true positives only,
   from `bounty_metadata.json`'s `disclosure_bounty` (Detect/Exploit) or `patch_bounty` (Patch) -- see
   `calculate_bounties.py` upstream for the same disclosure/patch split.

@@ -9,10 +9,11 @@ export type TargetHandle = {
   /**
    * Requests autobrin-flue's detect-only mode (stops after the adversarial gate with a fast
    * confirmed/rejected verdict, skipping exploitation/triage/disclosure) for this task's
-   * engagement. For classification-style benchmarks (e.g. `owasp`) that grade a contender's
-   * confirmed/rejected call against known ground truth rather than needing a full advisory.
-   * Only `buildRepoPayload` (`contenders/autobrin.ts`) reads this today; undefined for every
-   * adapter that doesn't set it, which omits the field from the built payload entirely.
+   * engagement. For classification-style benchmarks (e.g. `owasp`, BountyBench's Detect lane)
+   * that grade a contender's confirmed/rejected call against known ground truth rather than
+   * needing a full advisory. Only `buildRepoPayload` (`contenders/autobrin.ts`) reads this
+   * today; undefined for every adapter that doesn't set it, which omits the field from the
+   * built payload entirely.
    */
   detectOnly?: boolean;
   metadata?: Record<string, unknown>;
@@ -64,11 +65,25 @@ export type RunContext = {
   engagementsDir: string;
 };
 
+/** Mirrors autobrin-flue's `ProposedPatch` schema (`{ summary, diff, files }`, `docs/modalities.md`). */
+export type ProposedPatch = {
+  summary: string;
+  diff: string;
+  files: string[];
+};
+
 export type ConfirmedFinding = {
   location?: string;
   cve?: string;
   summary?: string;
   verdict?: string;
+  /**
+   * autobrin-flue's disclosure-stage `proposed_patch` (repo modality only), host-validated with
+   * `git apply --check`. `undefined` when the attempt's contender type doesn't populate this
+   * field at all (e.g. PITHOS); `null` when autobrin ran but the skill/host validation produced
+   * no usable patch for this attempt.
+   */
+  proposedPatch?: ProposedPatch | null;
 };
 
 export type ContenderClaim = {

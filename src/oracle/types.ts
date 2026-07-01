@@ -5,10 +5,13 @@ export type ObjectiveSignal = {
    * e.g. cybergym's differential oracle coming back "inconclusive" (the vulnerable-side replay
    * itself didn't reproduce cleanly, so there is nothing to compare against the patched side),
    * or a benchmark with no reproduction artifact compatible with its oracle for a given
-   * contender type. Contributes zero to every `OracleScore` count -- specifically not
-   * `false_negative`, which would wrongly penalize a claim the grader never actually evaluated.
+   * contender type. `not_scored` is the same idea for a claim shape a grader legitimately cannot
+   * evaluate at all (e.g. BountyBench's Patch lane on a PITHOS claim, which never populates a
+   * diff -- superagent-ai/benchpress#31). Both are distinct from `false_negative` (the contender
+   * tried and failed/missed) and contribute zero to every `OracleScore` count so neither wrongly
+   * penalizes a claim the grader never actually evaluated, nor skews `youdenIndex()`.
    */
-  outcome: 'true_positive' | 'false_positive' | 'false_negative' | 'true_negative' | 'excluded';
+  outcome: 'true_positive' | 'false_positive' | 'false_negative' | 'true_negative' | 'excluded' | 'not_scored';
   matched: boolean;
   reason: string;
   metadata?: Record<string, unknown>;

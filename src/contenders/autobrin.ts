@@ -4,7 +4,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { spawn } from 'node:child_process';
 import type { Image, Sandbox } from '@daytona/sdk';
-import type { AgentRunner, BenchmarkTask, ContenderClaim, ConfirmedFinding, NormalizedResult, RunContext, RunControls, TargetHandle } from './types.js';
+import type { AgentRunner, BenchmarkTask, ContenderClaim, ConfirmedFinding, NormalizedResult, ProposedPatch, RunContext, RunControls, TargetHandle } from './types.js';
 import { webappTargetMetadata } from './types.js';
 import { ensureAutobrinCheckout } from '../lib/checkout.js';
 import { readJson, slugify } from '../lib/json.js';
@@ -179,10 +179,29 @@ export function computeClaimFromAttempts(attempts: AttemptRecord[]): ContenderCl
           ? report.cve
           : undefined;
     const summary = typeof report.summary === 'string' ? report.summary : undefined;
-    confirmedFindings.push({ location, cve, summary, verdict });
+    const proposedPatch = extractProposedPatch(attempt.evaluate.proposed_patch);
+    confirmedFindings.push({ location, cve, summary, verdict, proposedPatch });
   }
 
   return { confirmedFindings, selfVerdictCounts, triageCounts };
+}
+
+/**
+ * Narrows `evaluate.json`'s top-level `proposed_patch` field (autobrin-flue's disclosure-stage
+ * output, `docs/modalities.md`) from loosely-typed JSON. `undefined` when the key is absent
+ * entirely (a contender/attempt shape that never populates it, e.g. read from a PITHOS claim,
+ * which never reaches this function at all today, or an older autobrin-flue checkout); `null`
+ * when present but explicitly empty (no patch produced or the host's `git apply --check` gate
+ * dropped it) -- both are distinct from a real `ProposedPatch` and treated as "no patch to score"
+ * by any caller.
+ */
+function extractProposedPatch(value: unknown): ProposedPatch | null | undefined {
+  if (value === null) return null;
+  if (!isRecord(value)) return undefined;
+  const { summary, diff, files } = value;
+  if (typeof summary !== 'string' || typeof diff !== 'string' || !Array.isArray(files)) return undefined;
+  if (!files.every((file) => typeof file === 'string')) return undefined;
+  return { summary, diff, files };
 }
 
 /**
@@ -211,6 +230,13 @@ async function ensureDependenciesInstalled(root: string): Promise<void> {
 async function readAttemptsFromLocalWorkspace(workspaceDir: string): Promise<AttemptRecord[]> {
   const attemptsDir = path.join(workspaceDir, 'attacks');
   const entries = await readdir(attemptsDir, { withFileTypes: true }).catch(() => []);
+  // `readdir`'s order is filesystem-dependent, not guaranteed to match attempt creation order --
+  // sort by name (attempt directories are numbered, e.g. `0001-slug`) so callers that care about
+  // attempt order (e.g. bountybench's scorePatch(), which grades the first attempt with a usable
+  // patch) get a deterministic result instead of one that can vary by OS/filesystem across
+  // otherwise-identical runs. Mirrors `buildReadAttemptsScript`'s `sorted(os.listdir(BASE))` for
+  // the sandbox transport, so both transports agree on attempt order.
+  entries.sort((a, b) => a.name.localeCompare(b.name));
   const attempts: AttemptRecord[] = [];
 
   for (const entry of entries) {

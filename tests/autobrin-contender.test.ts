@@ -67,6 +67,41 @@ describe('computeClaimFromAttempts', () => {
     const claim = computeClaimFromAttempts([{ evaluate: { verdict: 'confirmed', triage_tier: 7 }, report: {}, disclosure: {} }]);
     expect(claim.triageCounts).toEqual({});
   });
+
+  it('extracts a well-formed proposed_patch off evaluate.json (autobrin-flue docs/modalities.md shape)', () => {
+    const claim = computeClaimFromAttempts([
+      {
+        evaluate: {
+          verdict: 'confirmed',
+          proposed_patch: { summary: 'Remove the unnecessary shell invocation', diff: '--- a/x\n+++ b/x\n', files: ['server.js'] },
+        },
+        report: {},
+        disclosure: {},
+      },
+    ]);
+    expect(claim.confirmedFindings[0]?.proposedPatch).toEqual({
+      summary: 'Remove the unnecessary shell invocation',
+      diff: '--- a/x\n+++ b/x\n',
+      files: ['server.js'],
+    });
+  });
+
+  it('carries an explicit null proposed_patch through as null, not undefined (distinct "no patch" states)', () => {
+    const claim = computeClaimFromAttempts([{ evaluate: { verdict: 'confirmed', proposed_patch: null }, report: {}, disclosure: {} }]);
+    expect(claim.confirmedFindings[0]?.proposedPatch).toBeNull();
+  });
+
+  it('leaves proposedPatch undefined when the field is absent entirely (e.g. an older autobrin-flue checkout)', () => {
+    const claim = computeClaimFromAttempts([{ evaluate: { verdict: 'confirmed' }, report: {}, disclosure: {} }]);
+    expect(claim.confirmedFindings[0]?.proposedPatch).toBeUndefined();
+  });
+
+  it('ignores a malformed proposed_patch (missing required fields) rather than throwing', () => {
+    const claim = computeClaimFromAttempts([
+      { evaluate: { verdict: 'confirmed', proposed_patch: { summary: 'missing diff/files' } }, report: {}, disclosure: {} },
+    ]);
+    expect(claim.confirmedFindings[0]?.proposedPatch).toBeUndefined();
+  });
 });
 
 describe('extractClaimFromWorkspace (regression: local-disk reader after refactor)', () => {
@@ -110,6 +145,26 @@ describe('extractClaimFromWorkspace (regression: local-disk reader after refacto
     const claim = await extractClaimFromWorkspace(workspaceDir);
     expect(claim.selfVerdictCounts).toEqual({ unevaluated: 1 });
   });
+
+  it('orders confirmedFindings by attempt directory name regardless of on-disk creation order (regression: bountybench scorePatch() grades the first finding with a patch, which must be deterministic)', async () => {
+    const workspaceDir = makeWorkspace();
+    // Created out of name order on purpose: readdir() order is filesystem-dependent, not
+    // creation-order, so this only passes if the reader explicitly sorts by name.
+    for (const [name, location] of [
+      ['0002-second', 'second.js'],
+      ['0001-first', 'first.js'],
+    ] as const) {
+      const attemptDir = path.join(workspaceDir, 'attacks', name);
+      mkdirSync(attemptDir, { recursive: true });
+      writeFileSync(path.join(attemptDir, 'evaluate.json'), JSON.stringify({ verdict: 'confirmed' }));
+      writeFileSync(path.join(attemptDir, 'report.json'), JSON.stringify({ location }));
+      writeFileSync(path.join(attemptDir, 'disclosure.json'), JSON.stringify({}));
+    }
+
+    const claim = await extractClaimFromWorkspace(workspaceDir);
+
+    expect(claim.confirmedFindings.map((f) => f.location)).toEqual(['first.js', 'second.js']);
+  });
 });
 
 describe('buildRepoPayload', () => {
@@ -137,7 +192,7 @@ describe('buildRepoPayload', () => {
     expect('detectOnly' in payload).toBe(false);
   });
 
-  it('forwards target.detectOnly into the payload for classification benchmarks (e.g. owasp)', () => {
+  it('forwards target.detectOnly into the payload for classification benchmarks (e.g. owasp, bountybench)', () => {
     const payload = buildRepoPayload({ target: { ...target, detectOnly: true }, controls });
     expect(payload.detectOnly).toBe(true);
   });
