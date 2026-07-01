@@ -39,7 +39,7 @@ Do not implement scientific benchmark bodies until the dependency row is satisfi
 ## Adding a contender
 
 - **autobrin:** `{ "type": "autobrin", "id": "autobrin@<ref>", "ref": "<branch-or-sha>" }` or `{ "path": "/abs/checkout" }` for local trees. `transport: "daytona"` (plus `image`/`snapshot`) runs the engagement inside a Daytona sandbox via `runDaytonaEngagement` instead of local `npx`; default (`transport` omitted, or `"local"`) is unchanged. `path` is rejected with `transport: "daytona"` (no local filesystem for the sandbox to read).
-- **pithos:** `{ "type": "pithos", "provider": "<pi-provider-id>", "sandboxMode": "docker" | "local", "maxFindings": <n> }` — requires the `pithos` CLI on `PATH` (`uv tool install git+https://github.com/superagent-ai/PITHOS.git`); parses `TRIAGE.json` + `verify/runtime-summary.json`, not stdout. See README's "PITHOS" section for caveats found by running the real CLI.
+- **pithos:** `{ "type": "pithos", "provider": "<pi-provider-id>", "sandboxMode": "docker" | "local", "maxFindings": <n> }` — requires the `pithos` CLI on `PATH` (`uv tool install git+https://github.com/superagent-ai/PITHOS.git`); parses `TRIAGE.json` + `verify/runtime-summary.json`, not stdout. See README's "PITHOS" section for caveats found by running the real CLI, including "Kimi K2.6 on Azure" for the `src/contenders/pithosKimiAzureExtension.ts` Pi extension (`--provider azure-openai-responses --model kimi-k2.6`) that gets PITHOS onto the same Kimi Azure deployment AutoBrin uses.
 - **command:** `{ "type": "command", "id": "<name>", "command": "<tool> run {repo} --model {model}" }` — stdout may be JSON `ContenderClaim`.
 
 ## Git workflow
