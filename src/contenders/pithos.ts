@@ -11,6 +11,7 @@ import type {
 import { runCommand } from '../lib/git.js';
 import { readJson, slugify } from '../lib/json.js';
 import { cacheRoot } from '../lib/paths.js';
+import { ensureKimiAzurePiExtension } from './pithosKimiAzureExtension.js';
 
 export type PithosContenderConfig = {
   id?: string;
@@ -182,6 +183,10 @@ export function createPithosRunner(config: PithosContenderConfig): AgentRunner {
       const stdoutPath = path.join(context.resultsDir, `${slugify(contenderId)}_${slugify(task.id)}.stdout.log`);
       const stderrPath = path.join(context.resultsDir, `${slugify(contenderId)}_${slugify(task.id)}.stderr.log`);
 
+      // No-ops without AZURE_OPENAI_API_KEY/AZURE_OPENAI_BASE_URL; see
+      // pithosKimiAzureExtension.ts for why this must be a global Pi extension rather
+      // than a PITHOS or Pi source change.
+      await ensureKimiAzurePiExtension();
       const { stdout, stderr, exitCode } = await runCommand('pithos', args, {});
       await writeFile(stdoutPath, stdout, 'utf8');
       await writeFile(stderrPath, stderr, 'utf8');
