@@ -38,6 +38,17 @@ Example: [`config/contenders.example.jsonc`](config/contenders.example.jsonc)
 
 `AUTOBRIN_FLUE_REF` defaults to `staging` when an autobrin contender omits `ref`. benchpress's own default branch is `main`; that is independent of which autobrin-flue branch you pin.
 
+### `autobrin` transport: `local` vs `daytona`
+
+An `autobrin` contender's `transport` field selects where its engagement actually executes:
+
+| `transport` | Behavior |
+| --- | --- |
+| `local` (default) | Spawns `npx flue run engagement` on this machine. Unchanged from before this option existed. |
+| `daytona` | Provisions a Daytona sandbox and runs the engagement inside it via the same launcher `bench daytona run` uses (see below) — required for benchmarks whose modality needs a live computer-use environment. Repo modality only for now. |
+
+`transport: "daytona"` requires `image` or `snapshot` (same meaning as `bench daytona run --image`/`--snapshot`) and accepts the same `visionModel`/`keepSandbox` knobs; `path` (local checkout override) is rejected since there's no local filesystem for the sandbox to read. Provider/Daytona secrets come from the ambient process environment (`dotenvx run -f ... -- ...`), same as every other `bench` command. See [`config/contenders.example.jsonc`](config/contenders.example.jsonc) for the shape and [`examples/daytona-autobrin-contender.ts`](examples/daytona-autobrin-contender.ts) for a runnable example against the declarative bookworm computer-use image.
+
 ## Benchmarks
 
 Registered in [`src/benchmarks/registry.ts`](src/benchmarks/registry.ts):
@@ -68,7 +79,7 @@ bench daytona doctor [--image <cu-image>] [--snapshot <name>] [--keep-sandbox]
 
 ### Daytona launcher (`bench daytona`)
 
-Standalone provisioning for autobrin-flue engagements **inside** a Daytona sandbox (topology A: agent-in-sandbox), mirroring the app repo's HTTP run flow:
+Standalone provisioning for autobrin-flue engagements **inside** a Daytona sandbox (topology A: agent-in-sandbox), mirroring the app repo's HTTP run flow. This is the same launcher (`runDaytonaEngagement` in [`src/daytona/launcher.ts`](src/daytona/launcher.ts)) an `autobrin` contender uses under `transport: "daytona"` (see [Contenders](#contenders) above) — `bench daytona run` and the contender path share sandbox lifecycle, bootstrap, and cleanup, they just differ in how the engagement's result gets consumed afterward.
 
 1. `daytona.create` from a computer-use-enabled `--image` or `--snapshot`
 2. Clone/build autobrin-flue at `--ref` (`staging` or `main` branch pins only)

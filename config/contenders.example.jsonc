@@ -2,6 +2,19 @@
   "contenders": [
     { "id": "autobrin@staging", "type": "autobrin", "ref": "staging" },
     { "id": "autobrin@main", "type": "autobrin", "ref": "main" },
+    // transport: "daytona" runs the engagement inside a Daytona sandbox via bench's own
+    // Daytona launcher instead of a local `npx flue run engagement` subprocess. Needed for
+    // benchmarks whose modality requires a live computer-use environment. "image"/"snapshot"
+    // takes the same value as `bench daytona run --image|--snapshot`; see "Sandbox requirements"
+    // in README.md for what that image needs.
+    {
+      "id": "autobrin@staging-daytona",
+      "type": "autobrin",
+      "ref": "staging",
+      "transport": "daytona",
+      "image": "<daytona-computer-use-image-or-snapshot>",
+      "visionModel": "kimi-k2.6"
+    },
     {
       "id": "<your-tool>",
       "type": "command",

@@ -138,6 +138,15 @@ export async function prepareRepoTarget(
     'git -C "$TARGET" remote add origin "$CLONE_URL"',
     'if [ -n "$SHA" ]; then',
     '  git -C "$TARGET" fetch --depth 1 origin "$SHA"',
+    // autobrin-flue's own `targetPreparation: "prepared"` validation resolves `sha` via
+    // `git rev-parse --verify "$SHA^{commit}"` (src/workspace.ts, requirePreparedTarget). A raw
+    // 40-char commit hash resolves straight from the object database once fetched, but a
+    // symbolic ref like a tag (e.g. repo-cve-smoke's own "2.13.0") does not: `git fetch <ref>`
+    // with no explicit local refspec mapping only ever populates FETCH_HEAD, never a same-named
+    // local ref. Tagging FETCH_HEAD as "$SHA" is a harmless no-op for the raw-hash case and fixes
+    // the symbolic-ref case; the repo was just freshly `git init`'d above, so there is no
+    // pre-existing tag to collide with.
+    '  git -C "$TARGET" tag "$SHA" FETCH_HEAD',
     'else',
     '  git -C "$TARGET" fetch --depth 1 origin HEAD',
     'fi',

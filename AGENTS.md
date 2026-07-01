@@ -11,7 +11,7 @@ benchpress is an **evaluation harness**, not a product core. Keep benchmark-spec
 - **No competing-tool names in source.** Ship `autobrin` + generic `command` runner types only. User configs (gitignored) name external agents.
 - **Generated output uncommitted.** `runs/`, `results/`, `engagements/`, `.cache/`, `vendor/` stay gitignored.
 - **One-way dependency on autobrin-flue.** Clone/pin at runtime via contender `ref` or `AUTOBRIN_FLUE_REF`. Do not add benchpress references to autobrin-flue.
-- **Daytona provisioning lives here for standalone runs.** `bench daytona run` provisions a Daytona sandbox, bootstraps autobrin-flue inside it, and runs engagements via the same HTTP/SSE flow as the app repo. autobrin-flue core stays consume-only; benchpress owns sandbox lifecycle for engagements and benchmark runs outside app.
+- **Daytona provisioning lives here for standalone runs.** `bench daytona run` provisions a Daytona sandbox, bootstraps autobrin-flue inside it, and runs engagements via the same HTTP/SSE flow as the app repo. autobrin-flue core stays consume-only; benchpress owns sandbox lifecycle for engagements and benchmark runs outside app. The `autobrin` contender's `transport: "daytona"` reuses this exact launcher (`runDaytonaEngagement`) rather than duplicating sandbox lifecycle logic — extend the launcher, not the contender, for anything sandbox-level.
 
 ## Benchmark capability dependencies
 
@@ -37,7 +37,7 @@ Do not implement scientific benchmark bodies until the dependency row is satisfi
 
 ## Adding a contender
 
-- **autobrin:** `{ "type": "autobrin", "id": "autobrin@<ref>", "ref": "<branch-or-sha>" }` or `{ "path": "/abs/checkout" }` for local trees.
+- **autobrin:** `{ "type": "autobrin", "id": "autobrin@<ref>", "ref": "<branch-or-sha>" }` or `{ "path": "/abs/checkout" }` for local trees. `transport: "daytona"` (plus `image`/`snapshot`) runs the engagement inside a Daytona sandbox via `runDaytonaEngagement` instead of local `npx`; default (`transport` omitted, or `"local"`) is unchanged. `path` is rejected with `transport: "daytona"` (no local filesystem for the sandbox to read).
 - **command:** `{ "type": "command", "id": "<name>", "command": "<tool> run {repo} --model {model}" }` — stdout may be JSON `ContenderClaim`.
 
 ## Git workflow
