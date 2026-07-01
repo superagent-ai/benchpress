@@ -44,7 +44,7 @@ export type ContenderClaim = {
 
 export type NormalizedResult = {
   contenderId: string;
-  contenderType: 'autobrin' | 'command';
+  contenderType: 'autobrin' | 'pithos' | 'command';
   resolvedRef?: string;
   commitSha?: string;
   exitCode: number;
@@ -61,7 +61,7 @@ export type NormalizedResult = {
 
 export type AgentRunner = {
   readonly id: string;
-  readonly type: 'autobrin' | 'command';
+  readonly type: 'autobrin' | 'pithos' | 'command';
   run(input: {
     task: BenchmarkTask;
     target: TargetHandle;
