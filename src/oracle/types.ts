@@ -1,6 +1,14 @@
 /** Normalized objective signal from a benchmark grader (not a contender self-verdict). */
 export type ObjectiveSignal = {
-  outcome: 'true_positive' | 'false_positive' | 'false_negative' | 'true_negative';
+  /**
+   * `excluded` is for a grader that deliberately declines to render a TP/FP/FN/TN verdict --
+   * e.g. cybergym's differential oracle coming back "inconclusive" (the vulnerable-side replay
+   * itself didn't reproduce cleanly, so there is nothing to compare against the patched side),
+   * or a benchmark with no reproduction artifact compatible with its oracle for a given
+   * contender type. Contributes zero to every `OracleScore` count -- specifically not
+   * `false_negative`, which would wrongly penalize a claim the grader never actually evaluated.
+   */
+  outcome: 'true_positive' | 'false_positive' | 'false_negative' | 'true_negative' | 'excluded';
   matched: boolean;
   reason: string;
   metadata?: Record<string, unknown>;
