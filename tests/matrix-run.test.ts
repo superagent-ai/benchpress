@@ -133,4 +133,21 @@ describe('runTaskAcrossContenders', () => {
       runTaskAcrossContenders({ adapter, task: fakeTask(), contenders: [fakeContender()], controls: { model: 'x' }, context }),
     ).resolves.toBeDefined();
   });
+
+  // Regression: cybergym's score() needs the full NormalizedResult (on-disk attempt artifacts),
+  // not just the benchmark-agnostic ContenderClaim -- both runMatrix and runSingle funnel through
+  // this one function, so asserting it here covers both CLI entry points.
+  it('passes the full NormalizedResult to score(), not just claim, for both runMatrix and runSingle callers', async () => {
+    const score = vi.fn(async (_input: Parameters<BenchmarkAdapter['score']>[0]) => emptyOracleScore());
+    const adapter = fakeAdapter({ score });
+    const contenderResult = fakeResult({ workspaceDir: '/tmp/engagement/workspace' });
+    const contender = fakeContender({ run: async () => contenderResult });
+
+    await runTaskAcrossContenders({ adapter, task: fakeTask(), contenders: [contender], controls: { model: 'x' }, context });
+
+    expect(score).toHaveBeenCalledTimes(1);
+    const scoreInput = score.mock.calls[0]![0];
+    expect(scoreInput.result).toBe(contenderResult);
+    expect(scoreInput.result?.workspaceDir).toBe('/tmp/engagement/workspace');
+  });
 });

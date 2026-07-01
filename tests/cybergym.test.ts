@@ -6,7 +6,6 @@ import {
   type CyberGymTargetMetadata,
 } from '../src/benchmarks/cybergym/adapter.js';
 import { resolveBenchmark } from '../src/benchmarks/registry.js';
-import { NotImplementedBenchmarkError } from '../src/benchmarks/types.js';
 
 const sampleSpec: CyberGymTaskSpec = {
   taskId: 'arvo:1065',
@@ -64,9 +63,12 @@ describe('buildCyberGymTargetHandle (pure)', () => {
     fixImage: { image: 'n132/arvo:1065-fix', imageId: 'sha256:fix' },
   };
 
-  it('never sets repo/sha -- would make the generic autobrin contender clone the live upstream HEAD instead of the pinned vulnerable snapshot', () => {
+  it('sets repo to the local extracted sourceDir (never the live upstream URL), and leaves sha unset', () => {
     const handle = buildCyberGymTargetHandle('arvo:1065', sampleMetadata);
-    expect(handle.repo).toBeUndefined();
+    // A local, non-git directory: the generic autobrin contender's materializeTarget() takes
+    // autobrin-flue's plain-copy branch (cloneOrCopyTarget), not a git clone of live upstream.
+    expect(handle.repo).toBe(sampleMetadata.sourceDir);
+    expect(handle.repo).not.toBe(sampleMetadata.projectMainRepo);
     expect(handle.sha).toBeUndefined();
     expect(handle.modality).toBe('repo');
     expect(handle.benchmarkId).toBe('cybergym');
@@ -122,16 +124,37 @@ describe('cybergym adapter (hermetic -- no network/Docker)', () => {
     expect(taskTypes.has('oss-fuzz')).toBe(true);
   });
 
-  it('score() throws NotImplementedBenchmarkError naming both blocking autobrin-flue issues, not a faked result', () => {
-    expect(() => cyberGymAdapter.score({} as never)).toThrow(NotImplementedBenchmarkError);
-    try {
-      cyberGymAdapter.score({} as never);
-      expect.unreachable('score() must throw');
-    } catch (error) {
-      expect(error).toBeInstanceOf(NotImplementedBenchmarkError);
-      const message = (error as Error).message;
-      expect(message).toContain('autobrin-flue#180');
-      expect(message).toContain('autobrin-flue#181');
-    }
+  it('score() is real (no longer NotImplementedBenchmarkError) and returns a clear, non-crashing result for a non-autobrin contender', async () => {
+    // Full scoring behavior for `autobrin` contenders (real differential-oracle invocation,
+    // mocked at the subprocess boundary) is covered in tests/cybergym-score.test.ts. This is a
+    // hermetic smoke test: the non-autobrin/"not scored" path needs no Docker/network at all,
+    // so it belongs in this no-network/no-Docker describe block.
+    const metadata: CyberGymTargetMetadata = {
+      ...sampleSpec,
+      sourceDir: '/tmp/cybergym-test/repo-vul',
+      descriptionPath: '/tmp/cybergym-test/description.txt',
+      vulImage: { image: 'n132/arvo:1065-vul', imageId: 'sha256:vul' },
+      fixImage: { image: 'n132/arvo:1065-fix', imageId: 'sha256:fix' },
+    };
+    const task = { id: 'arvo:1065', benchmarkId: 'cybergym', metadata: sampleSpec };
+    const target = buildCyberGymTargetHandle('arvo:1065', metadata);
+    const claim = { confirmedFindings: [], selfVerdictCounts: {}, triageCounts: {} };
+    const result = {
+      contenderId: 'pithos',
+      contenderType: 'pithos' as const,
+      exitCode: 0,
+      durationS: 1,
+      costUsd: null,
+      costStatus: 'unavailable' as const,
+      claim,
+    };
+
+    const score = await cyberGymAdapter.score({ task, target, claim, result });
+
+    expect(score.truePositives).toBe(0);
+    expect(score.falsePositives).toBe(0);
+    expect(score.falseNegatives).toBe(0);
+    expect(score.signals[0]?.outcome).toBe('excluded');
+    expect(score.signals[0]?.reason).toMatch(/Not scored/);
   });
 });
