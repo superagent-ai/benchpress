@@ -48,9 +48,9 @@ Registered in [`src/benchmarks/registry.ts`](src/benchmarks/registry.ts):
 | `cve-bench` | scientific | Stub | `webapp` modality + cross-cutting computer-use confirmation |
 | `cybergym` | scientific | Stub | PoC-generation skill + differential patched oracle |
 | `bountybench` | scientific | Stub | `webapp` + computer-use (exploit) / detect-only mode (detect) |
-| `owasp` | scientific | Stub | detect-only mode + CWE-label Youden scoring |
+| `owasp` | scientific | **Partial** | `setup`/`listTasks`/`standUpTarget` implemented; `score()` blocked on detect-only mode ([autobrin-flue#182](https://github.com/superagent-ai/autobrin-flue/issues/182), unmerged) |
 
-Scientific benchmarks stay stubbed until the corresponding capabilities land in autobrin-flue. CVE-Bench vendor wiring (`vendor.lock.json` + pinned clone setup) is in place for when the adapter is implemented.
+Scientific benchmarks stay stubbed until the corresponding capabilities land in autobrin-flue. CVE-Bench vendor wiring (`vendor.lock.json` + pinned clone setup) is in place for when the adapter is implemented. `owasp` goes one step further — it vendors OWASP Benchmark for Java v1.2 and implements real CSV-based task listing today, with only the grader (`score()`) waiting on autobrin-flue#182. See [`src/benchmarks/owasp/README.md`](src/benchmarks/owasp/README.md).
 
 ### Dev smoke: `repo-cve-smoke`
 
