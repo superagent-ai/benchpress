@@ -139,4 +139,38 @@ describe('runSingle/runMatrix: teardown always runs, even when score() throws', 
 
     expect(adapter.teardown).toHaveBeenCalledTimes(1);
   });
+
+  it('runSingle tears down even when standUpTarget() itself throws (e.g. a target that partially came up)', async () => {
+    const contender = fakeContender();
+    const adapter = fakeAdapter({
+      standUpTarget: vi.fn(async () => {
+        throw new Error('boom: compose up succeeded but health check failed');
+      }),
+    });
+    registryMock.resolveBenchmark.mockReturnValue(adapter);
+
+    await expect(runSingle({ benchmarkId: 'fake-benchmark', contender, controls: { model: 'x' } })).rejects.toThrow(
+      /boom: compose up succeeded/,
+    );
+
+    expect(adapter.teardown).toHaveBeenCalledTimes(1);
+    expect(contender.run).not.toHaveBeenCalled();
+  });
+
+  it('runMatrix tears down even when standUpTarget() itself throws', async () => {
+    const contender = fakeContender();
+    const adapter = fakeAdapter({
+      standUpTarget: vi.fn(async () => {
+        throw new Error('boom: compose up succeeded but health check failed');
+      }),
+    });
+    registryMock.resolveBenchmark.mockReturnValue(adapter);
+
+    await expect(
+      runMatrix({ contenders: [{ id: 'c', type: 'command', command: 'true' }], benchmarks: ['fake-benchmark'], controls: { model: 'x' } }),
+    ).rejects.toThrow(/boom: compose up succeeded/);
+
+    expect(adapter.teardown).toHaveBeenCalledTimes(1);
+    expect(contender.run).not.toHaveBeenCalled();
+  });
 });

@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { AgentRunner, MatrixRunResult, RunContext, RunControls, TaskRunResult } from '../contenders/types.js';
+import type { AgentRunner, MatrixRunResult, RunContext, RunControls, TargetHandle, TaskRunResult } from '../contenders/types.js';
 import { resolveBenchmark } from '../benchmarks/registry.js';
 import { createContenders, type ContenderConfig } from '../contenders/registry.js';
 import { aggregateOracleScores } from '../oracle/types.js';
@@ -41,11 +41,15 @@ export async function runMatrix(config: MatrixConfig): Promise<MatrixRunResult> 
         continue;
       }
 
-      const target = await adapter.standUpTarget(task);
       const controls = config.controls;
       const contenderResults: TaskRunResult['contenderResults'] = [];
+      let target: TargetHandle;
 
       try {
+        // standUpTarget() itself is inside this try (not just the contender loop below): a target
+        // that partially came up (e.g. a Docker Compose stack that started but then failed a
+        // health/baseline check) still needs teardown, not just one that came up cleanly.
+        target = await adapter.standUpTarget(task);
         for (const contender of contenders) {
           const result = await contender.run({ task, target, controls, context });
           const oracleScore = await adapter.score({ task, target, claim: result.claim });
@@ -136,10 +140,13 @@ export async function runSingle(input: {
     );
   }
 
-  const target = await adapter.standUpTarget(task);
   const context: RunContext = { runId, resultsDir, engagementsDir };
+  let target: TargetHandle;
 
   try {
+    // standUpTarget() itself is inside this try (see runMatrix for why): a target that partially
+    // came up still needs teardown, not just one that came up cleanly.
+    target = await adapter.standUpTarget(task);
     const result = await input.contender.run({ task, target, controls: input.controls, context });
     const oracleScore = await adapter.score({ task, target, claim: result.claim });
     const selfConfirmed = (result.claim.selfVerdictCounts.confirmed ?? 0) > 0;

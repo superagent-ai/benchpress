@@ -29,7 +29,10 @@ export async function composeUp(cwd: string): Promise<void> {
 }
 
 export async function composeDown(cwd: string): Promise<void> {
-  await dockerCompose(['down', '-v'], cwd);
+  const result = await dockerCompose(['down', '-v'], cwd);
+  if (result.exitCode !== 0) {
+    console.warn(`docker compose down failed in ${cwd} (exit ${result.exitCode}): ${result.stderr.trim() || result.stdout.trim()}`);
+  }
 }
 
 /**

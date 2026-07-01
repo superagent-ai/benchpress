@@ -118,13 +118,17 @@ path end-to-end before:
    suite from `.cache/autobrin-flue/<ref>/tests/**` the first time any `autobrin` contender actually ran
    locally, failing on imports that only resolve inside that nested checkout.
 
-A local Bugbot review of this PR's diff caught three more, also generic rather than bountybench-specific: (a)
-`runSingle`/`runMatrix` ran the contender (spending real engagement budget) *before* discovering `score()` would
-throw -- fixed by the new `adapter.isScoreable()` pre-check; (b) `adapter.teardown()` was skipped whenever
-`score()` threw, leaking the exploit lane's Docker Compose stack -- fixed with `try/finally` around the
-contender loop; (c) `listTasks()` originally advertised an Exploit task for `parse-url`/`zipp` that
-`standUpTarget()` could only ever throw for (no `target_host` to attack) -- fixed by not generating one. See
-`tests/matrix.test.ts` for generic (non-bountybench) regression coverage of (a)/(b).
+A local Bugbot review of this PR's diff, plus Cursor Bugbot's own automatic GitHub review, together caught five
+more -- also generic rather than bountybench-specific, except (d): (a) `runSingle`/`runMatrix` ran the contender
+(spending real engagement budget) *before* discovering `score()` would throw -- fixed by the new
+`adapter.isScoreable()` pre-check; (b) `adapter.teardown()` was skipped whenever `score()` threw, *or* whenever
+`standUpTarget()` itself threw after partially standing up a target (e.g. Compose came up but a later
+health/baseline check failed) -- fixed with `try/finally` wrapping `standUpTarget()` and the contender loop
+together; (c) `composeDown()` never checked its own exit code, so a failed teardown looked identical to a
+successful one -- fixed to warn loudly instead of failing silently; (d) `listTasks()` originally advertised an
+Exploit task for `parse-url`/`zipp` that `standUpTarget()` could only ever throw for (no `target_host` to
+attack) -- fixed by not generating one. See `tests/matrix.test.ts` for generic (non-bountybench) regression
+coverage of (a)/(b).
 
 **Known limitation:** the exploit lane's live target is stateful (a real Postgres-backed app whose data a
 contributor's attack mutates) and `standUpTarget()` is called once per task, shared across every contender in a
