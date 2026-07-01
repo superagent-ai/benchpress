@@ -4,8 +4,8 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { spawn } from 'node:child_process';
 import type { Image, Sandbox } from '@daytona/sdk';
-import type { AgentRunner, BenchmarkTask, ContenderClaim, ConfirmedFinding, NormalizedResult, RunContext, RunControls, TargetHandle } from './types.js';
-import { webappTargetMetadata } from './types.js';
+import type { AgentRunner, BenchmarkTask, ContenderClaim, ConfirmedFinding, NormalizedResult, ProposedPatch, RunContext, RunControls, TargetHandle } from './types.js';
+import { repoTargetDetectOnly, webappTargetMetadata } from './types.js';
 import { ensureAutobrinCheckout } from '../lib/checkout.js';
 import { readJson, slugify } from '../lib/json.js';
 import { runCommand } from '../lib/git.js';
@@ -85,6 +85,7 @@ export function buildRepoPayload(input: {
     targetPreparation: 'prepared',
     model: input.controls.model,
     contributors: input.contributors ?? input.controls.contributors,
+    ...(repoTargetDetectOnly(input.target) ? { detectOnly: true } : {}),
     ...buildGuardrails(input.controls),
     resume: false,
   };
@@ -178,10 +179,29 @@ export function computeClaimFromAttempts(attempts: AttemptRecord[]): ContenderCl
           ? report.cve
           : undefined;
     const summary = typeof report.summary === 'string' ? report.summary : undefined;
-    confirmedFindings.push({ location, cve, summary, verdict });
+    const proposedPatch = extractProposedPatch(attempt.evaluate.proposed_patch);
+    confirmedFindings.push({ location, cve, summary, verdict, proposedPatch });
   }
 
   return { confirmedFindings, selfVerdictCounts, triageCounts };
+}
+
+/**
+ * Narrows `evaluate.json`'s top-level `proposed_patch` field (autobrin-flue's disclosure-stage
+ * output, `docs/modalities.md`) from loosely-typed JSON. `undefined` when the key is absent
+ * entirely (a contender/attempt shape that never populates it, e.g. read from a PITHOS claim,
+ * which never reaches this function at all today, or an older autobrin-flue checkout); `null`
+ * when present but explicitly empty (no patch produced or the host's `git apply --check` gate
+ * dropped it) -- both are distinct from a real `ProposedPatch` and treated as "no patch to score"
+ * by any caller.
+ */
+function extractProposedPatch(value: unknown): ProposedPatch | null | undefined {
+  if (value === null) return null;
+  if (!isRecord(value)) return undefined;
+  const { summary, diff, files } = value;
+  if (typeof summary !== 'string' || typeof diff !== 'string' || !Array.isArray(files)) return undefined;
+  if (!files.every((file) => typeof file === 'string')) return undefined;
+  return { summary, diff, files };
 }
 
 /**

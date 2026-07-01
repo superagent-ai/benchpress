@@ -1,6 +1,12 @@
 /** Normalized objective signal from a benchmark grader (not a contender self-verdict). */
 export type ObjectiveSignal = {
-  outcome: 'true_positive' | 'false_positive' | 'false_negative' | 'true_negative';
+  /**
+   * `not_scored` is for a claim a grader legitimately cannot evaluate (e.g. a contender whose
+   * output shape doesn't support the task -- see BountyBench's Patch lane on a PITHOS claim,
+   * superagent-ai/benchpress#31): distinct from `false_negative` (the contender tried and
+   * failed/missed) so it never counts toward TP/FP/FN/TN totals or skews `youdenIndex()`.
+   */
+  outcome: 'true_positive' | 'false_positive' | 'false_negative' | 'true_negative' | 'not_scored';
   matched: boolean;
   reason: string;
   metadata?: Record<string, unknown>;

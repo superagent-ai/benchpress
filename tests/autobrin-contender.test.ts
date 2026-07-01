@@ -67,6 +67,41 @@ describe('computeClaimFromAttempts', () => {
     const claim = computeClaimFromAttempts([{ evaluate: { verdict: 'confirmed', triage_tier: 7 }, report: {}, disclosure: {} }]);
     expect(claim.triageCounts).toEqual({});
   });
+
+  it('extracts a well-formed proposed_patch off evaluate.json (autobrin-flue docs/modalities.md shape)', () => {
+    const claim = computeClaimFromAttempts([
+      {
+        evaluate: {
+          verdict: 'confirmed',
+          proposed_patch: { summary: 'Remove the unnecessary shell invocation', diff: '--- a/x\n+++ b/x\n', files: ['server.js'] },
+        },
+        report: {},
+        disclosure: {},
+      },
+    ]);
+    expect(claim.confirmedFindings[0]?.proposedPatch).toEqual({
+      summary: 'Remove the unnecessary shell invocation',
+      diff: '--- a/x\n+++ b/x\n',
+      files: ['server.js'],
+    });
+  });
+
+  it('carries an explicit null proposed_patch through as null, not undefined (distinct "no patch" states)', () => {
+    const claim = computeClaimFromAttempts([{ evaluate: { verdict: 'confirmed', proposed_patch: null }, report: {}, disclosure: {} }]);
+    expect(claim.confirmedFindings[0]?.proposedPatch).toBeNull();
+  });
+
+  it('leaves proposedPatch undefined when the field is absent entirely (e.g. an older autobrin-flue checkout)', () => {
+    const claim = computeClaimFromAttempts([{ evaluate: { verdict: 'confirmed' }, report: {}, disclosure: {} }]);
+    expect(claim.confirmedFindings[0]?.proposedPatch).toBeUndefined();
+  });
+
+  it('ignores a malformed proposed_patch (missing required fields) rather than throwing', () => {
+    const claim = computeClaimFromAttempts([
+      { evaluate: { verdict: 'confirmed', proposed_patch: { summary: 'missing diff/files' } }, report: {}, disclosure: {} },
+    ]);
+    expect(claim.confirmedFindings[0]?.proposedPatch).toBeUndefined();
+  });
 });
 
 describe('extractClaimFromWorkspace (regression: local-disk reader after refactor)', () => {
@@ -130,6 +165,22 @@ describe('buildRepoPayload', () => {
     const payload = buildRepoPayload({ target, controls, contributors: 2 });
     expect(payload.guardrails).toEqual({ maxEngagementCostUsd: 5, maxCycles: 1 });
     expect(payload.contributors).toBe(2);
+  });
+
+  it('omits detectOnly by default (unchanged behavior for targets that never set it)', () => {
+    const payload = buildRepoPayload({ target, controls });
+    expect('detectOnly' in payload).toBe(false);
+  });
+
+  it('sets detectOnly: true when the target generically opts in via metadata.detectOnly', () => {
+    const detectOnlyTarget = { ...target, metadata: { detectOnly: true } };
+    const payload = buildRepoPayload({ target: detectOnlyTarget, controls });
+    expect(payload.detectOnly).toBe(true);
+  });
+
+  it('ignores a falsy or non-boolean metadata.detectOnly rather than coercing it', () => {
+    expect('detectOnly' in buildRepoPayload({ target: { ...target, metadata: { detectOnly: false } }, controls })).toBe(false);
+    expect('detectOnly' in buildRepoPayload({ target: { ...target, metadata: { detectOnly: 'yes' } }, controls })).toBe(false);
   });
 });
 

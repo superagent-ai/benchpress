@@ -35,6 +35,18 @@ export function webappTargetMetadata(target: TargetHandle): WebappTargetMetadata
   return webapp?.url ? webapp : undefined;
 }
 
+/**
+ * Generic, benchmark-agnostic opt-in for autobrin-flue's `detectOnly` repo-modality evaluation
+ * mode (stops after the adversarial gate with a confirmed/rejected verdict instead of running
+ * exploitation/triage/disclosure -- see autobrin-flue's `docs/modalities.md`). Any repo-modality
+ * benchmark whose task is classification-style (OWASP Benchmark vulnerable/safe, BountyBench's
+ * Detect lane) sets `target.metadata.detectOnly = true` in its own `standUpTarget()`; read
+ * generically here so `buildRepoPayload()` stays benchmark-agnostic.
+ */
+export function repoTargetDetectOnly(target: TargetHandle): boolean {
+  return (target.metadata as { detectOnly?: boolean } | undefined)?.detectOnly === true;
+}
+
 export type BenchmarkTask = {
   id: string;
   benchmarkId: string;
@@ -55,11 +67,25 @@ export type RunContext = {
   engagementsDir: string;
 };
 
+/** Mirrors autobrin-flue's `ProposedPatch` schema (`{ summary, diff, files }`, `docs/modalities.md`). */
+export type ProposedPatch = {
+  summary: string;
+  diff: string;
+  files: string[];
+};
+
 export type ConfirmedFinding = {
   location?: string;
   cve?: string;
   summary?: string;
   verdict?: string;
+  /**
+   * autobrin-flue's disclosure-stage `proposed_patch` (repo modality only), host-validated with
+   * `git apply --check`. `undefined` when the attempt's contender type doesn't populate this
+   * field at all (e.g. PITHOS); `null` when autobrin ran but the skill/host validation produced
+   * no usable patch for this attempt.
+   */
+  proposedPatch?: ProposedPatch | null;
 };
 
 export type ContenderClaim = {
