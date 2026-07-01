@@ -1,9 +1,9 @@
 import { exec, execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { Sandbox } from '@daytona/sdk';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   buildReadAttemptsScript,
   buildRepoPayload,
@@ -11,9 +11,16 @@ import {
   createAutobrinRunner,
   extractClaimFromWorkspace,
   fetchAttemptsFromSandbox,
+  materializeTarget,
   type AttemptRecord,
 } from '../src/contenders/autobrin.js';
 import type { EngagementPayload } from '../src/daytona/payload.js';
+import { runCommand } from '../src/lib/git.js';
+
+vi.mock('../src/lib/git.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../src/lib/git.js')>();
+  return { ...actual, runCommand: vi.fn() };
+});
 
 describe('computeClaimFromAttempts', () => {
   it('counts self-verdicts and triage tiers across all attempts', () => {
@@ -260,5 +267,50 @@ describe('createAutobrinRunner transport validation', () => {
   it('accepts transport "daytona" with only a snapshot', () => {
     const runner = createAutobrinRunner({ config: { id: 'x', type: 'autobrin', transport: 'daytona', snapshot: 'daytona-large' } });
     expect(runner.id).toBe('x');
+  });
+});
+
+describe('materializeTarget', () => {
+  const mockedRunCommand = vi.mocked(runCommand);
+
+  afterEach(() => {
+    mockedRunCommand.mockReset();
+  });
+
+  it('runs the generated script as a real tsx file, not "tsx -e" (regression for benchpress#25)', async () => {
+    mockedRunCommand.mockResolvedValue({ exitCode: 0, stdout: '', stderr: '' });
+
+    await materializeTarget({
+      autobrinRoot: '/fake/autobrin-root',
+      repo: 'apostrophecms/sanitize-html',
+      sha: 'v2.13.0',
+      workspaceRoot: '/fake/workspace',
+    });
+
+    expect(mockedRunCommand).toHaveBeenCalledTimes(1);
+    const [command, args, options] = mockedRunCommand.mock.calls[0]!;
+    expect(command).toBe('npx');
+    expect(args[0]).toBe('tsx');
+    // Bug 1: `tsx -e <script>` always transforms to CJS, which rejects the top-level `await`
+    // prepareWorkspace() call below -- must be a real file path, never the literal '-e'.
+    expect(args[1]).not.toBe('-e');
+    const scriptPath = args[1]!;
+    expect(scriptPath).toMatch(/\.mjs$/);
+    expect(options?.cwd).toBe('/fake/autobrin-root');
+
+    const script = readFileSync(scriptPath, 'utf8');
+    expect(script).toContain('await prepareWorkspace(');
+    // Bug 2: a relative './src/workspace.js' specifier resolves against the temp script file's
+    // own directory once written to disk, not `autobrinRoot` -- must be an absolute file:// URL.
+    expect(script).toContain(`from "file:///fake/autobrin-root/src/workspace.js"`);
+    expect(script).not.toContain("from './src/workspace.js'");
+  });
+
+  it('throws a descriptive error when the script fails', async () => {
+    mockedRunCommand.mockResolvedValue({ exitCode: 1, stdout: '', stderr: 'boom' });
+
+    await expect(
+      materializeTarget({ autobrinRoot: '/fake/autobrin-root', repo: 'owner/repo', workspaceRoot: '/fake/workspace' }),
+    ).rejects.toThrow(/Failed to materialize target owner\/repo.*boom/s);
   });
 });
