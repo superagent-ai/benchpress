@@ -18,9 +18,23 @@ export type RepoEngagementPayload = {
   resume?: boolean;
 };
 
+/** Mirrors autobrin-flue's `WebappTargetSchema` (`docs/modalities.md` on `staging`) field-for-field. */
+export type WebappTargetPayload = {
+  url: string;
+  repo?: string;
+  sha?: string;
+  username?: string;
+  password?: string;
+  role?: string;
+  outboundServiceUrl?: string;
+  proofUploadingUrl?: string;
+  secret?: string;
+  secretUploadingUrl?: string;
+};
+
 export type WebappEngagementPayload = {
   modality: 'webapp';
-  target: { url: string };
+  target: WebappTargetPayload;
   workspaceRoot: string;
   model?: string;
   thinking?: string;
@@ -54,17 +68,29 @@ export function buildRepoPayload(input: {
   };
 }
 
-export function buildWebappPayload(input: {
-  url: string;
-  model?: string;
-  thinking?: string;
-  contributors?: number;
-  guardrails?: EngagementGuardrails;
-  workspaceRoot?: string;
-}): WebappEngagementPayload {
+export function buildWebappPayload(
+  input: WebappTargetPayload & {
+    model?: string;
+    thinking?: string;
+    contributors?: number;
+    guardrails?: EngagementGuardrails;
+    workspaceRoot?: string;
+  },
+): WebappEngagementPayload {
   return {
     modality: 'webapp',
-    target: { url: input.url },
+    target: {
+      url: input.url,
+      repo: input.repo,
+      sha: input.sha,
+      username: input.username,
+      password: input.password,
+      role: input.role,
+      outboundServiceUrl: input.outboundServiceUrl,
+      proofUploadingUrl: input.proofUploadingUrl,
+      secret: input.secret,
+      secretUploadingUrl: input.secretUploadingUrl,
+    },
     workspaceRoot: input.workspaceRoot ?? BENCHPRESS_ROOT,
     model: input.model,
     thinking: input.thinking,
@@ -114,6 +140,15 @@ export function normalizeEngagementPayload(input: unknown): EngagementPayload {
     }
     return buildWebappPayload({
       url: target.url.trim(),
+      repo: typeof target.repo === 'string' ? target.repo : undefined,
+      sha: typeof target.sha === 'string' ? target.sha : undefined,
+      username: typeof target.username === 'string' ? target.username : undefined,
+      password: typeof target.password === 'string' ? target.password : undefined,
+      role: typeof target.role === 'string' ? target.role : undefined,
+      outboundServiceUrl: typeof target.outboundServiceUrl === 'string' ? target.outboundServiceUrl : undefined,
+      proofUploadingUrl: typeof target.proofUploadingUrl === 'string' ? target.proofUploadingUrl : undefined,
+      secret: typeof target.secret === 'string' ? target.secret : undefined,
+      secretUploadingUrl: typeof target.secretUploadingUrl === 'string' ? target.secretUploadingUrl : undefined,
       model: typeof input.model === 'string' ? input.model : undefined,
       thinking: typeof input.thinking === 'string' ? input.thinking : undefined,
       contributors: typeof input.contributors === 'number' ? input.contributors : undefined,
