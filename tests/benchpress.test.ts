@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { stripJsonComments } from '../src/lib/json.js';
-import { scoreFixCommitOverlap } from '../src/benchmarks/repo-cve-smoke/adapter.js';
+import { repoCveSmokeAdapter, scoreFixCommitOverlap } from '../src/benchmarks/repo-cve-smoke/adapter.js';
 import { resolveBenchmark, listBenchmarks, BENCHMARK_CAPABILITY_DEPENDENCIES } from '../src/benchmarks/registry.js';
 import { createContender, contenderIdFromConfig } from '../src/contenders/registry.js';
 import { aggregateOracleScores, youdenIndex } from '../src/oracle/types.js';
@@ -56,6 +56,44 @@ describe('repo-cve-smoke oracle', () => {
       triageCounts: {},
     });
     expect(score.truePositives).toBe(1);
+  });
+});
+
+// Regression coverage for superagent-ai/benchpress#27: the shipped task data itself (not just the
+// generic scoring function above) previously pointed fixCommit at a README-only deprecation
+// commit that never touched changedPaths, so every score was either an impossible false_positive
+// or a coincidental true_positive. These checks catch the same class of data-entry mistake
+// without needing network access to re-fetch the real commit from GitHub.
+describe('repo-cve-smoke tasks.jsonc', () => {
+  it('lists tasks with internally consistent CVE/commit/path metadata', async () => {
+    const tasks = await repoCveSmokeAdapter.listTasks();
+    expect(tasks.length).toBeGreaterThan(0);
+
+    for (const task of tasks) {
+      const spec = task.metadata as { cve: string; fixCommit: string; vulnerableSha: string; changedPaths: string[] };
+      expect(spec.cve).toMatch(/^CVE-\d{4}-\d+$/);
+      expect(spec.fixCommit).toMatch(/^[0-9a-f]{40}$/i);
+      expect(spec.vulnerableSha.trim()).not.toBe('');
+      expect(spec.fixCommit).not.toBe(spec.vulnerableSha);
+      expect(spec.changedPaths.length).toBeGreaterThan(0);
+      for (const changedPath of spec.changedPaths) {
+        expect(changedPath.trim()).not.toBe('');
+      }
+    }
+  });
+
+  it('pins the verified sanitize-html CVE-2024-21501 fix, not the old README-only deprecation commit', async () => {
+    const tasks = await repoCveSmokeAdapter.listTasks();
+    const task = tasks.find((t) => t.id === 'sanitize-html-cve-2024-21501');
+    const spec = task?.metadata as { fixCommit: string; vulnerableSha: string; changedPaths: string[] } | undefined;
+
+    expect(spec).toBeDefined();
+    // apostrophecms/sanitize-html@c5dbdf7 merges PR #650 ("fix: ignore source maps when
+    // processing with postcss"), cited by both GHSA-rm97-x556-q36h and NVD as the fix for
+    // CVE-2024-21501; verified locally to land in 2.12.1 and be absent from 2.11.0.
+    expect(spec?.fixCommit).toBe('c5dbdf77fe8b836d3bf4554ea39edb45281ec0b4');
+    expect(spec?.vulnerableSha).toBe('2.11.0');
+    expect(spec?.changedPaths).toContain('index.js');
   });
 });
 
