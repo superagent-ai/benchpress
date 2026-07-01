@@ -15,6 +15,7 @@
       "image": "<daytona-computer-use-image-or-snapshot>",
       "visionModel": "kimi-k2.6"
     },
+    { "id": "pithos", "type": "pithos", "provider": "azure-openai-responses" },
     {
       "id": "<your-tool>",
       "type": "command",

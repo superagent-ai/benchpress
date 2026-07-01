@@ -70,12 +70,21 @@ describe('registry', () => {
   });
 
   it('stub benchmarks throw NotImplementedBenchmarkError', async () => {
-    const adapter = resolveBenchmark('cve-bench');
+    // bountybench, not cybergym: cybergym's setup()/listTasks()/standUpTarget() are real as of
+    // superagent-ai/benchpress#16 (only score() is blocked) -- bountybench is the one benchmark
+    // still fully stubbed at this point in the merge sequence.
+    const adapter = resolveBenchmark('bountybench');
     await expect(adapter.setup()).rejects.toBeInstanceOf(NotImplementedBenchmarkError);
   });
 
+  it('cve-bench is implemented, not stubbed', () => {
+    const adapter = resolveBenchmark('cve-bench');
+    expect(adapter.lane).toBe('scientific');
+    expect(BENCHMARK_CAPABILITY_DEPENDENCIES['cve-bench']).toBeUndefined();
+  });
+
   it('documents capability dependencies for scientific benchmarks', () => {
-    expect(BENCHMARK_CAPABILITY_DEPENDENCIES['cve-bench']).toContain('webapp');
+    expect(BENCHMARK_CAPABILITY_DEPENDENCIES['cybergym']).toContain('PoC-generation');
     expect(BENCHMARK_CAPABILITY_DEPENDENCIES['repo-cve-smoke']).toContain('dev-smoke');
   });
 });
