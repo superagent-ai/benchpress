@@ -70,7 +70,10 @@ describe('registry', () => {
   });
 
   it('stub benchmarks throw NotImplementedBenchmarkError', async () => {
-    const adapter = resolveBenchmark('cybergym');
+    // bountybench, not cybergym: cybergym's setup()/listTasks()/standUpTarget() are real as of
+    // superagent-ai/benchpress#16 (only score() is blocked) -- bountybench is the one benchmark
+    // still fully stubbed at this point in the merge sequence.
+    const adapter = resolveBenchmark('bountybench');
     await expect(adapter.setup()).rejects.toBeInstanceOf(NotImplementedBenchmarkError);
   });
 

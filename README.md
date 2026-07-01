@@ -32,11 +32,37 @@ Version-vs-version comparisons (e.g. `autobrin@staging` vs `autobrin@main`) use 
 | Type | Purpose |
 | --- | --- |
 | `autobrin` | Clones [superagent-ai/autobrin-flue](https://github.com/superagent-ai/autobrin-flue) at a branch/SHA (or uses a local path), runs `flue run engagement` |
+| `pithos` | Runs the installed [superagent-ai/PITHOS](https://github.com/superagent-ai/PITHOS) CLI (`pithos run`) for a head-to-head vs `autobrin` |
 | `command` | Generic external CLI; add your own agent via config without naming it in repo source |
 
 Example: [`config/contenders.example.jsonc`](config/contenders.example.jsonc)
 
 `AUTOBRIN_FLUE_REF` defaults to `staging` when an autobrin contender omits `ref`. benchpress's own default branch is `main`; that is independent of which autobrin-flue branch you pin.
+
+### PITHOS
+
+benchpress does not install or vendor PITHOS; install it once per machine/sandbox:
+
+```bash
+uv tool install git+https://github.com/superagent-ai/PITHOS.git
+```
+
+The `pithos` contender shells out to the `pithos` binary on `PATH` (`pithos run <repo-url> --model <model> ...`) and parses `TRIAGE.json` plus `verify/runtime-summary.json` from its results directory into a `ContenderClaim` — PITHOS's default stdout is a human-readable summary, not JSON, so this is a dedicated contender (`src/contenders/pithos.ts`) rather than the generic `command` type. A runtime/source-oracle `confirmed_runtime` verdict is treated as `confirmed`; absent runtime evidence (the common case without live-app execution), the static triage verdict is used instead. `costUsd`/`costStatus` are always `null`/`"unavailable"` — PITHOS does not report spend.
+
+Config fields (`PithosContenderConfig`):
+
+| Field | Default | Notes |
+| --- | --- | --- |
+| `provider` | PITHOS's own default (`azure-openai-responses`) or `PITHOS_PROVIDER` env | Pi provider id, e.g. `deepseek`, `azure-openai-responses` |
+| `sandboxMode` | `"local"` | `"local"` trusts the outer environment (no Docker) like this harness's own `autobrin` contender; `"docker"` uses PITHOS's pinned Pi CLI image but requires a local Docker daemon |
+| `maxFindings` | PITHOS's own default (12) | Bounds candidate-finding breadth; PITHOS's static pipeline runs ~15 sequential stages regardless of this value, so it bounds per-finding cost/time, not pipeline depth |
+
+Caveats found by running the real CLI (not guessed):
+
+- **`repo` must be a URL, not an `owner/repo` slug.** `TargetHandle.repo` (e.g. `"apostrophecms/sanitize-html"`) is converted to `https://github.com/<repo>` before invoking PITHOS; PITHOS's own resolver only recognizes `github.com` URLs (or SSH `git@github.com:...`) and otherwise treats the argument as a local path.
+- **`sandboxMode: "local"` has no Pi version pin.** PITHOS's Docker mode runs a pinned `@earendil-works/pi-coding-agent` version baked into its agent image; local mode runs whatever `pi` binary is already on `PATH` (`PI_SKIP_VERSION_CHECK=1` is set internally). A `pi` CLI older than PITHOS's pin can fail with `Unknown options: --session-id, --exclude-tools`. Verified working: `@earendil-works/pi-coding-agent@0.78.1` (PITHOS's own pin at the time of writing, in `pithos/agent_image.py`).
+- **Not every Azure OpenAI deployment supports Pi's `azure-openai-responses` provider.** A deployment PITHOS/Pi doesn't recognize can 400 with `Encrypted content is not supported with this model` (observed with an Azure-hosted Kimi K2.6 deployment). `deepseek`/`deepseek-chat` is a reliable fallback for smoke-testing when this happens.
+- **`controls.model` is passed through as PITHOS's literal `--model` value**, exactly like the generic `command` contender's `{model}` substitution — it is not translated from autobrin/pi-ai's `provider/model` convention (e.g. `kimi-azure/kimi-k2.6`). A shared matrix run needs a `controls.model` value each contender's own CLI can resolve; that is not always the same literal string across tools with different provider/model naming conventions, so `pithos` is not included in [`config/matrix.example.jsonc`](config/matrix.example.jsonc) to avoid implying one always exists.
 
 ## Benchmarks
 
@@ -46,11 +72,11 @@ Registered in [`src/benchmarks/registry.ts`](src/benchmarks/registry.ts):
 | --- | --- | --- | --- |
 | `repo-cve-smoke` | dev-smoke | **Runnable** | `repo` modality only — for harness/version testing, not scientific reporting |
 | `cve-bench` | scientific | **Runnable** (2/40 tasks verified) | — (unblocked; see [`src/benchmarks/cve-bench/README.md`](src/benchmarks/cve-bench/README.md)) |
-| `cybergym` | scientific | Stub | PoC-generation skill + differential patched oracle |
+| `cybergym` | scientific | **Partial** (`setup`/`listTasks`/`standUpTarget` real; `score()` blocked) | PoC-generation skill + differential patched oracle |
 | `bountybench` | scientific | Stub | `webapp` + computer-use (exploit) / detect-only mode (detect) |
-| `owasp` | scientific | Stub | detect-only mode + CWE-label Youden scoring |
+| `owasp` | scientific | **Partial** | `setup`/`listTasks`/`standUpTarget` implemented; `score()` blocked on detect-only mode ([autobrin-flue#182](https://github.com/superagent-ai/autobrin-flue/issues/182), unmerged) |
 
-Remaining scientific benchmarks stay stubbed until the corresponding capabilities land in autobrin-flue.
+Remaining scientific benchmarks (`bountybench`) stay stubbed until the corresponding capabilities land in autobrin-flue. CyberGym is a documented exception (see [superagent-ai/benchpress#16](https://github.com/superagent-ai/benchpress/issues/16)): task vendoring, real task listing, and dockerized target stand-up don't need the blocked capabilities, so they're implemented for real against a representative 5-task subset; only `score()` throws until [autobrin-flue#180](https://github.com/superagent-ai/autobrin-flue/issues/180)/[#181](https://github.com/superagent-ai/autobrin-flue/issues/181) land — see [`src/benchmarks/cybergym/README.md`](src/benchmarks/cybergym/README.md). `owasp` goes one step further — it vendors OWASP Benchmark for Java v1.2 and implements real CSV-based task listing today, with only the grader (`score()`) waiting on autobrin-flue#182. See [`src/benchmarks/owasp/README.md`](src/benchmarks/owasp/README.md).
 
 ### Scientific: `cve-bench`
 
@@ -73,6 +99,7 @@ Small repo-modality lane scored by **fix-commit overlap** (external oracle, not 
 ```bash
 bench list
 bench run <benchmark> --contender <id> --model <model-id> [--flue-ref staging] [--task <id>]
+  # pithos contender: [--provider <id>] [--sandbox-mode docker|local] [--max-findings <n>]
 bench matrix --config config/matrix.example.jsonc
 bench daytona run --ref staging --image <cu-image> --vision-model <model> --payload '<json>' [--snapshot <name>] [--keep-sandbox]
 bench daytona doctor [--image <cu-image>] [--snapshot <name>] [--keep-sandbox]

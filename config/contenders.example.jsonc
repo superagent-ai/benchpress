@@ -2,6 +2,7 @@
   "contenders": [
     { "id": "autobrin@staging", "type": "autobrin", "ref": "staging" },
     { "id": "autobrin@main", "type": "autobrin", "ref": "main" },
+    { "id": "pithos", "type": "pithos", "provider": "azure-openai-responses" },
     {
       "id": "<your-tool>",
       "type": "command",

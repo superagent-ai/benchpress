@@ -37,6 +37,7 @@ export function listRunnableBenchmarks(): BenchmarkAdapter[] {
 export const BENCHMARK_CAPABILITY_DEPENDENCIES: Record<string, string> = {
   cybergym: 'PoC-generation contributor skill + differential patched oracle',
   bountybench: 'webapp + computer-use (exploit) / detect-only mode (detect)',
-  owasp: 'detect-only mode + CWE-label Youden scoring',
+  owasp:
+    'score() requires detect-only mode (autobrin-flue#182, unmerged); setup/listTasks/standUpTarget are implemented',
   'repo-cve-smoke': 'repo modality only (dev-smoke lane; not for scientific reporting)',
 };

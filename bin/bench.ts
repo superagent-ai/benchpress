@@ -36,13 +36,24 @@ async function main(): Promise<void> {
 
   if (command === 'run') {
     const benchmarkId = args[0];
-    if (!benchmarkId) throw new Error('Usage: bench run <benchmark> --contender <id> --model <id> [--flue-ref staging]');
+    if (!benchmarkId) {
+      throw new Error(
+        'Usage: bench run <benchmark> --contender <id> --model <id> [--flue-ref staging] [--provider <id>] [--sandbox-mode docker|local] [--max-findings <n>]',
+      );
+    }
     const contenderId = readFlag(args, '--contender');
     const model = readFlag(args, '--model');
     const flueRef = readFlag(args, '--flue-ref');
     const taskId = readFlag(args, '--task');
     const maxCost = readFlag(args, '--max-engagement-cost-usd');
+    const provider = readFlag(args, '--provider');
+    const sandboxMode = readFlag(args, '--sandbox-mode');
+    const maxFindingsRaw = readFlag(args, '--max-findings');
     if (!contenderId || !model) throw new Error('bench run requires --contender and --model');
+    if (sandboxMode !== undefined && sandboxMode !== 'docker' && sandboxMode !== 'local') {
+      throw new Error(`--sandbox-mode must be "docker" or "local", got: ${sandboxMode}`);
+    }
+    const maxFindings = parseMaxFindings(maxFindingsRaw);
 
     const contenderConfig: ContenderConfig =
       contenderId.startsWith('autobrin@') || contenderId === 'autobrin'
@@ -51,7 +62,9 @@ async function main(): Promise<void> {
             type: 'autobrin',
             ref: flueRef ?? (contenderId.startsWith('autobrin@') ? contenderId.replace(/^autobrin@/, '') : undefined),
           }
-        : { id: contenderId, type: 'command', command: readFlag(args, '--command') ?? '<your-tool> run {repo} --model {model}' };
+        : contenderId === 'pithos'
+          ? { id: contenderId, type: 'pithos', provider, sandboxMode, maxFindings }
+          : { id: contenderId, type: 'command', command: readFlag(args, '--command') ?? '<your-tool> run {repo} --model {model}' };
 
     const result = await runSingle({
       benchmarkId,
@@ -123,12 +136,22 @@ function hasFlag(args: string[], flag: string): boolean {
   return args.includes(flag);
 }
 
+function parseMaxFindings(raw: string | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`--max-findings must be a positive integer, got: ${raw}`);
+  }
+  return value;
+}
+
 function printUsage(): void {
   console.log(`benchpress CLI
 
 Usage:
   bench list
   bench run <benchmark> --contender <id> --model <id> [--flue-ref staging] [--task <id>]
+    (pithos contender: [--provider <id>] [--sandbox-mode docker|local] [--max-findings <n>])
   bench matrix --config <path.jsonc>
   bench daytona run --ref staging --image <image> --vision-model <model> --payload '<json>' [--snapshot <name>] [--keep-sandbox]
   bench daytona doctor [--image <image>] [--snapshot <name>] [--keep-sandbox]
