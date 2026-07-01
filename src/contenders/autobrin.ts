@@ -1,5 +1,7 @@
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { spawn } from 'node:child_process';
 import type { Image, Sandbox } from '@daytona/sdk';
 import type { AgentRunner, BenchmarkTask, ContenderClaim, ConfirmedFinding, NormalizedResult, RunContext, RunControls, TargetHandle } from './types.js';
@@ -477,14 +479,27 @@ async function runViaDaytona(input: RunInput): Promise<NormalizedResult> {
   } satisfies NormalizedResult;
 }
 
-async function materializeTarget(input: {
+/**
+ * Shells out to the autobrin-flue checkout's own `prepareWorkspace()` (rather than
+ * reimplementing target materialization here) via a generated script. This must be a real file
+ * run as `npx tsx <file>`, not `npx tsx -e <script>`: tsx's `-e`/eval mode always transforms to
+ * CommonJS output, and esbuild rejects the top-level `await prepareWorkspace(...)` below under
+ * that output format ("Top-level await is currently not supported with the \"cjs\" output
+ * format") -- this failed on every invocation, unconditionally, until surfaced by a real
+ * `repo-cve-smoke` run (see superagent-ai/benchpress#25). The import specifier must also be an
+ * absolute `file://` URL rather than the relative `./src/workspace.js` a same-directory script
+ * could use: once written to a temp file, `./src/workspace.js` resolves relative to that temp
+ * file's own directory (ESM relative imports ignore `cwd`), not `autobrinRoot`.
+ */
+export async function materializeTarget(input: {
   autobrinRoot: string;
   repo: string;
   sha?: string;
   workspaceRoot: string;
 }): Promise<void> {
+  const workspaceModuleUrl = pathToFileURL(path.join(input.autobrinRoot, 'src', 'workspace.js')).href;
   const script = `
-import { prepareWorkspace } from './src/workspace.js';
+import { prepareWorkspace } from ${JSON.stringify(workspaceModuleUrl)};
 await prepareWorkspace({
   projectRoot: process.cwd(),
   repo: ${JSON.stringify(input.repo)},
@@ -493,7 +508,10 @@ await prepareWorkspace({
   targetPreparation: 'materialize',
 });
 `;
-  const { exitCode, stderr } = await runCommand('npx', ['tsx', '-e', script], { cwd: input.autobrinRoot });
+  const scriptDir = await mkdtemp(path.join(tmpdir(), 'benchpress-materialize-'));
+  const scriptPath = path.join(scriptDir, 'materialize.mjs');
+  await writeFile(scriptPath, script, 'utf8');
+  const { exitCode, stderr } = await runCommand('npx', ['tsx', scriptPath], { cwd: input.autobrinRoot });
   if (exitCode !== 0) {
     throw new Error(`Failed to materialize target ${input.repo}: ${stderr}`);
   }
