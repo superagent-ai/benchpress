@@ -36,24 +36,32 @@ export async function runMatrix(config: MatrixConfig): Promise<MatrixRunResult> 
     }
 
     for (const task of tasks) {
+      if (adapter.isScoreable && !adapter.isScoreable(task)) {
+        console.warn(`Skipping task "${task.id}" (${benchmarkId}): adapter.isScoreable() reports it cannot be scored yet.`);
+        continue;
+      }
+
       const target = await adapter.standUpTarget(task);
       const controls = config.controls;
       const contenderResults: TaskRunResult['contenderResults'] = [];
 
-      for (const contender of contenders) {
-        const result = await contender.run({ task, target, controls, context });
-        const oracleScore = adapter.score({ task, target, claim: result.claim });
-        const selfConfirmed = (result.claim.selfVerdictCounts.confirmed ?? 0) > 0;
-        const graderMatched = oracleScore.truePositives > 0;
-        contenderResults.push({
-          result,
-          oracleScore,
-          claimVsGraderGap: selfConfirmed !== graderMatched,
-        });
+      try {
+        for (const contender of contenders) {
+          const result = await contender.run({ task, target, controls, context });
+          const oracleScore = await adapter.score({ task, target, claim: result.claim });
+          const selfConfirmed = (result.claim.selfVerdictCounts.confirmed ?? 0) > 0;
+          const graderMatched = oracleScore.truePositives > 0;
+          contenderResults.push({
+            result,
+            oracleScore,
+            claimVsGraderGap: selfConfirmed !== graderMatched,
+          });
+        }
+      } finally {
+        if (adapter.teardown) await adapter.teardown(task);
       }
 
       taskResults.push({ task, target, contenderResults });
-      if (adapter.teardown) await adapter.teardown(task);
     }
   }
 
@@ -121,24 +129,34 @@ export async function runSingle(input: {
   }
 
   const task = tasks[0]!;
+  if (adapter.isScoreable && !adapter.isScoreable(task)) {
+    throw new Error(
+      `Task "${task.id}" (${input.benchmarkId}) cannot be scored yet (adapter.isScoreable() returned false) -- ` +
+        'refusing to spend contender budget on an engagement whose result can never be scored. Pass --task to pick a different task.',
+    );
+  }
+
   const target = await adapter.standUpTarget(task);
   const context: RunContext = { runId, resultsDir, engagementsDir };
-  const result = await input.contender.run({ task, target, controls: input.controls, context });
-  const oracleScore = adapter.score({ task, target, claim: result.claim });
-  const selfConfirmed = (result.claim.selfVerdictCounts.confirmed ?? 0) > 0;
-  const graderMatched = oracleScore.truePositives > 0;
 
-  if (adapter.teardown) await adapter.teardown(task);
+  try {
+    const result = await input.contender.run({ task, target, controls: input.controls, context });
+    const oracleScore = await adapter.score({ task, target, claim: result.claim });
+    const selfConfirmed = (result.claim.selfVerdictCounts.confirmed ?? 0) > 0;
+    const graderMatched = oracleScore.truePositives > 0;
 
-  return {
-    task,
-    target,
-    contenderResults: [
-      {
-        result,
-        oracleScore,
-        claimVsGraderGap: selfConfirmed !== graderMatched,
-      },
-    ],
-  };
+    return {
+      task,
+      target,
+      contenderResults: [
+        {
+          result,
+          oracleScore,
+          claimVsGraderGap: selfConfirmed !== graderMatched,
+        },
+      ],
+    };
+  } finally {
+    if (adapter.teardown) await adapter.teardown(task);
+  }
 }

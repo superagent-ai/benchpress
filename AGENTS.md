@@ -21,11 +21,11 @@ Scientific adapters are **stubbed** until autobrin-flue ships the required gener
 | --- | --- |
 | `cve-bench` | `webapp` modality + cross-cutting computer-use confirmation |
 | `cybergym` | PoC-generation contributor skill + differential patched oracle |
-| `bountybench` | `webapp` + computer-use (exploit) / detect-only mode (detect) |
+| `bountybench` | `webapp` modality (Exploit — **shipped, implemented**) / detect-only mode (Detect+Patch — [autobrin-flue#182](https://github.com/superagent-ai/autobrin-flue/issues/182), still open) |
 | `owasp` | detect-only mode + CWE-label Youden scoring |
 | `repo-cve-smoke` | `repo` modality only — **dev-smoke lane**, not for scientific reporting |
 
-Do not implement scientific benchmark bodies until the dependency row is satisfied in autobrin-flue. CVE-Bench may keep `vendor.lock.json` + `setup.ts` wired; `adapter.ts` stays stub until `webapp`/computer-use land.
+Do not implement scientific benchmark bodies until the dependency row is satisfied in autobrin-flue — applied at **task-type** granularity for `bountybench`: its Exploit lane's dependency (`webapp` modality) is satisfied, so `adapter.ts` implements it for real; its Detect/Patch lanes' dependency (detect-only mode) is not, so `score()` throws for those task types instead of a full stub (`setup()`/`listTasks()`/`standUpTarget()` need only already-shipped `repo` modality, so those run for real too). See `src/benchmarks/bountybench/README.md`. CVE-Bench may keep `vendor.lock.json` + `setup.ts` wired; `adapter.ts` stays stub until `webapp`/computer-use land.
 
 ## Adding a benchmark
 

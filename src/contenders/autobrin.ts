@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+import { access, mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import type { AgentRunner, BenchmarkTask, ContenderClaim, ConfirmedFinding, NormalizedResult, RunContext, RunControls, TargetHandle } from './types.js';
@@ -33,6 +33,16 @@ function collect(proc: ReturnType<typeof spawn>): Promise<[string, string, numbe
   });
 }
 
+function buildGuardrails(controls: RunControls): Record<string, unknown> {
+  if (controls.maxEngagementCostUsd === undefined && controls.maxCycles === undefined) return {};
+  return {
+    guardrails: {
+      ...(controls.maxEngagementCostUsd !== undefined ? { maxEngagementCostUsd: controls.maxEngagementCostUsd } : {}),
+      ...(controls.maxCycles !== undefined ? { maxCycles: controls.maxCycles } : {}),
+    },
+  };
+}
+
 export function buildRepoPayload(input: {
   target: TargetHandle;
   controls: RunControls;
@@ -47,18 +57,47 @@ export function buildRepoPayload(input: {
     targetPreparation: 'prepared',
     model: input.controls.model,
     contributors: input.contributors ?? input.controls.contributors,
-    ...(input.controls.maxEngagementCostUsd !== undefined || input.controls.maxCycles !== undefined
-      ? {
-          guardrails: {
-            ...(input.controls.maxEngagementCostUsd !== undefined
-              ? { maxEngagementCostUsd: input.controls.maxEngagementCostUsd }
-              : {}),
-            ...(input.controls.maxCycles !== undefined ? { maxCycles: input.controls.maxCycles } : {}),
-          },
-        }
-      : {}),
+    ...buildGuardrails(input.controls),
     resume: false,
   };
+}
+
+/**
+ * Builds a webapp-modality payload from a `TargetHandle`. The live URL to
+ * attack has no first-class `TargetHandle` field (the type is shared across
+ * repo/webapp/model modalities), so webapp adapters put it in
+ * `target.metadata.url` by convention -- see `bountybench`'s exploit lane.
+ */
+export function buildWebappPayload(input: {
+  target: TargetHandle;
+  controls: RunControls;
+  workspaceRoot: string;
+  contributors?: number;
+}): Record<string, unknown> {
+  const url = input.target.metadata?.url;
+  if (typeof url !== 'string' || !url.trim()) {
+    throw new Error(
+      `webapp target for task ${input.target.taskId} is missing a "url" string in target.metadata; standUpTarget() must set it`,
+    );
+  }
+  return {
+    modality: 'webapp',
+    target: { url },
+    workspaceRoot: input.workspaceRoot,
+    model: input.controls.model,
+    contributors: input.contributors ?? input.controls.contributors,
+    ...buildGuardrails(input.controls),
+    resume: false,
+  };
+}
+
+function buildEngagementPayload(input: {
+  target: TargetHandle;
+  controls: RunControls;
+  workspaceRoot: string;
+  contributors?: number;
+}): Record<string, unknown> {
+  return input.target.modality === 'webapp' ? buildWebappPayload(input) : buildRepoPayload(input);
 }
 
 export async function extractClaimFromWorkspace(workspaceDir: string): Promise<ContenderClaim> {
@@ -100,6 +139,27 @@ export async function extractClaimFromWorkspace(workspaceDir: string): Promise<C
   return { confirmedFindings, selfVerdictCounts, triageCounts };
 }
 
+/**
+ * A checkout with no installed dependencies has no local `flue` binary, so a bare `npx flue ...`
+ * silently falls through to installing and running an unrelated, long-abandoned public npm
+ * package also named `flue` (a ~2015 Firebase/ES sync daemon) instead of failing loudly --
+ * producing a fast, wrong "the contender did nothing" result rather than an error. Discovered via
+ * a real end-to-end run against superagent-ai/benchpress#15's live BountyBench target; affects
+ * every fresh `ensureAutobrinCheckout()` clone (the common case, since `.cache/` is gitignored),
+ * not anything bountybench-specific.
+ */
+async function ensureDependenciesInstalled(root: string): Promise<void> {
+  const installed = await access(path.join(root, 'node_modules')).then(
+    () => true,
+    () => false,
+  );
+  if (installed) return;
+  const { exitCode, stderr, stdout } = await runCommand('npm', ['install'], { cwd: root });
+  if (exitCode !== 0) {
+    throw new Error(`npm install failed in ${root} (exit ${exitCode}): ${stderr.trim() || stdout.trim()}`);
+  }
+}
+
 export function createAutobrinRunner(options: AutobrinRunOptions): AgentRunner {
   const contenderId = options.config.id ?? 'autobrin';
   return {
@@ -108,6 +168,7 @@ export function createAutobrinRunner(options: AutobrinRunOptions): AgentRunner {
     async run({ task, target, controls, context }) {
       const started = Date.now();
       const checkout = await ensureAutobrinCheckout({ ref: options.config.ref, path: options.config.path });
+      await ensureDependenciesInstalled(checkout.root);
       const engagementDir = path.join(
         context.engagementsDir,
         `${slugify(contenderId)}_${slugify(task.benchmarkId)}_${slugify(task.id)}_${Date.now()}`,
@@ -124,7 +185,7 @@ export function createAutobrinRunner(options: AutobrinRunOptions): AgentRunner {
         });
       }
 
-      const payload = buildRepoPayload({
+      const payload = buildEngagementPayload({
         target,
         controls,
         workspaceRoot,
@@ -135,7 +196,11 @@ export function createAutobrinRunner(options: AutobrinRunOptions): AgentRunner {
       const stderrPath = path.join(context.resultsDir, `${slugify(contenderId)}_${slugify(task.id)}.stderr.log`);
       await mkdir(context.resultsDir, { recursive: true });
 
-      const args = ['flue', 'run', 'engagement', '--target', 'node', '--payload', JSON.stringify(payload)];
+      // @flue/cli's `run` command takes `--input <json>`, not `--payload` -- confirmed against the
+      // real installed CLI (`flue run --help`) via a live run against superagent-ai/benchpress#15's
+      // BountyBench target; the old flag name silently no-opped (`flue run` printed its usage and
+      // exited 1) rather than erroring on an engagement it never actually started.
+      const args = ['flue', 'run', 'engagement', '--target', 'node', '--input', JSON.stringify(payload)];
       const proc = spawn('npx', args, { cwd: checkout.root, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
       const [stdout, stderr, exitCode] = await collect(proc);
       await writeFile(stdoutPath, stdout, 'utf8');

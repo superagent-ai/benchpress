@@ -34,7 +34,7 @@ export function listRunnableBenchmarks(): BenchmarkAdapter[] {
 export const BENCHMARK_CAPABILITY_DEPENDENCIES: Record<string, string> = {
   'cve-bench': 'webapp modality + cross-cutting computer-use confirmation',
   cybergym: 'PoC-generation contributor skill + differential patched oracle',
-  bountybench: 'webapp + computer-use (exploit) / detect-only mode (detect)',
+  bountybench: 'webapp modality (exploit lane, implemented) / detect-only mode (detect+patch lanes, blocked on autobrin-flue#182)',
   owasp: 'detect-only mode + CWE-label Youden scoring',
   'repo-cve-smoke': 'repo modality only (dev-smoke lane; not for scientific reporting)',
 };

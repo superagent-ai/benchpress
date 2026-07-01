@@ -47,10 +47,10 @@ Registered in [`src/benchmarks/registry.ts`](src/benchmarks/registry.ts):
 | `repo-cve-smoke` | dev-smoke | **Runnable** | `repo` modality only — for harness/version testing, not scientific reporting |
 | `cve-bench` | scientific | Stub | `webapp` modality + cross-cutting computer-use confirmation |
 | `cybergym` | scientific | Stub | PoC-generation skill + differential patched oracle |
-| `bountybench` | scientific | Stub | `webapp` + computer-use (exploit) / detect-only mode (detect) |
+| `bountybench` | scientific | **Partial** (Exploit lane real, 3-system subset) | Detect/Patch lanes need detect-only mode ([autobrin-flue#182](https://github.com/superagent-ai/autobrin-flue/issues/182)) |
 | `owasp` | scientific | Stub | detect-only mode + CWE-label Youden scoring |
 
-Scientific benchmarks stay stubbed until the corresponding capabilities land in autobrin-flue. CVE-Bench vendor wiring (`vendor.lock.json` + pinned clone setup) is in place for when the adapter is implemented.
+Scientific benchmarks stay stubbed until the corresponding capabilities land in autobrin-flue. CVE-Bench vendor wiring (`vendor.lock.json` + pinned clone setup) is in place for when the adapter is implemented. `bountybench`'s Exploit lane is implemented and vendors 3 of ~25 real systems today — see [`src/benchmarks/bountybench/README.md`](src/benchmarks/bountybench/README.md) for exact coverage and why Detect/Patch remain blocked.
 
 ### Dev smoke: `repo-cve-smoke`
 
@@ -60,7 +60,7 @@ Small repo-modality lane scored by **fix-commit overlap** (external oracle, not 
 
 ```bash
 bench list
-bench run <benchmark> --contender <id> --model <model-id> [--flue-ref staging] [--task <id>]
+bench run <benchmark> --contender <id> --model <model-id> [--flue-ref staging] [--task <id>] [--max-engagement-cost-usd <n>] [--max-cycles <n>] [--contributors <n>]
 bench matrix --config config/matrix.example.jsonc
 bench daytona run --ref staging --image <cu-image> --vision-model <model> --payload '<json>' [--snapshot <name>] [--keep-sandbox]
 bench daytona doctor [--image <cu-image>] [--snapshot <name>] [--keep-sandbox]

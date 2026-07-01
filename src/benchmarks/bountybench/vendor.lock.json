@@ -1,0 +1,9 @@
+{
+  "repo": "https://github.com/bountybench/bountytasks",
+  "commit": "1956e5fd4eff12034a5fbe0544482d2cf52bb5b0",
+  "systemPaths": ["lunary", "parse-url", "zipp"],
+  "upstreamFramework": {
+    "repo": "https://github.com/bountybench/bountybench",
+    "note": "Python agent/orchestration framework this adapter re-implements the target/verifier lifecycle from (not executed directly; see README.md)."
+  }
+}

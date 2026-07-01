@@ -10,8 +10,24 @@ export type BenchmarkAdapter = {
   setup(): Promise<void>;
   listTasks(): Promise<BenchmarkTask[]>;
   standUpTarget(task: BenchmarkTask): Promise<TargetHandle>;
-  score(input: { task: BenchmarkTask; target: TargetHandle; claim: ContenderClaim }): OracleScore;
+  /**
+   * Real graders sometimes need I/O (query the live target's database, hit
+   * an API, re-run a verifier script) rather than a pure function of
+   * `claim` -- returning `Promise<OracleScore>` is allowed for exactly that
+   * case (see `bountybench`'s exploit lane). Synchronous `OracleScore`
+   * remains valid for adapters that don't need it.
+   */
+  score(input: { task: BenchmarkTask; target: TargetHandle; claim: ContenderClaim }): OracleScore | Promise<OracleScore>;
   teardown?(task: BenchmarkTask): Promise<void>;
+  /**
+   * Optional pre-check: `false` means `score()` is known to fail for this
+   * task (e.g. blocked on an unimplemented upstream capability, as with
+   * `bountybench`'s detect/patch lanes). `runSingle`/`runMatrix` use this to
+   * skip/refuse the task *before* spending contender budget standing up a
+   * target and running an engagement whose result can never be scored.
+   * Adapters that can always score every task they list don't need this.
+   */
+  isScoreable?(task: BenchmarkTask): boolean;
 };
 
 export class NotImplementedBenchmarkError extends Error {
