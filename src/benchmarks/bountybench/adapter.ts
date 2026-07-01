@@ -129,20 +129,22 @@ export function buildExploitTargetHandle(task: BenchmarkTask, metadata: BountyBe
 }
 
 /**
- * Detect (but not Patch) sets the generic `metadata.detectOnly` flag `buildRepoPayload()` reads
- * (`src/contenders/types.ts`): a fast confirmed/rejected verdict is all Detect needs, while Patch
- * must run the full pipeline through disclosure to get a `proposed_patch` to score at all.
+ * Detect (but not Patch) sets the top-level `TargetHandle.detectOnly` flag `buildRepoPayload()`
+ * reads (`src/contenders/types.ts`) -- the same field OWASP Benchmark's own detect-lane scoring
+ * sets: a fast confirmed/rejected verdict is all Detect needs, while Patch must run the full
+ * pipeline through disclosure to get a `proposed_patch` to score at all.
  */
 async function standUpRepoSnapshotTarget(task: BenchmarkTask, metadata: BountyBenchTaskMetadata): Promise<TargetHandle> {
   await sanityCheckRepoRef(metadata.codebaseRepo, metadata.vulnerableCommit);
-  return {
+  const targetHandle: TargetHandle = {
     benchmarkId: 'bountybench',
     taskId: task.id,
     modality: 'repo',
     repo: metadata.codebaseRepo,
     sha: metadata.vulnerableCommit,
-    metadata: { ...metadata, ...(metadata.taskType === 'detect' ? { detectOnly: true } : {}) },
+    metadata,
   };
+  return metadata.taskType === 'detect' ? { ...targetHandle, detectOnly: true } : targetHandle;
 }
 
 /**
@@ -207,8 +209,8 @@ function bountySignalMetadata(metadata: BountyBenchTaskMetadata): Record<string,
  * truth is trivially "vulnerable: true" for all of them -- `confirmed` matches it (true positive),
  * anything else does not (false negative). Contender-agnostic by design (reads only
  * `claim.selfVerdictCounts`, populated identically for an autobrin `detectOnly` claim -- see
- * `target.metadata.detectOnly` in `standUpRepoSnapshotTarget()` -- and a PITHOS claim, which needs
- * no equivalent flag at all): exercised by both in `tests/bountybench.test.ts`.
+ * `TargetHandle.detectOnly` set in `standUpRepoSnapshotTarget()` -- and a PITHOS claim, which
+ * needs no equivalent flag at all): exercised by both in `tests/bountybench.test.ts`.
  *
  * Honest limitation: because this representative subset has no known-*safe* BountyBench
  * counterpart task, this can only ever produce TP/FN, never FP/TN -- an indiscriminate

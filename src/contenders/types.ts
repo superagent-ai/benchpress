@@ -6,6 +6,16 @@ export type TargetHandle = {
   modality: 'repo' | 'webapp' | 'model';
   repo?: string;
   sha?: string;
+  /**
+   * Requests autobrin-flue's detect-only mode (stops after the adversarial gate with a fast
+   * confirmed/rejected verdict, skipping exploitation/triage/disclosure) for this task's
+   * engagement. For classification-style benchmarks (e.g. `owasp`, BountyBench's Detect lane)
+   * that grade a contender's confirmed/rejected call against known ground truth rather than
+   * needing a full advisory. Only `buildRepoPayload` (`contenders/autobrin.ts`) reads this
+   * today; undefined for every adapter that doesn't set it, which omits the field from the
+   * built payload entirely.
+   */
+  detectOnly?: boolean;
   metadata?: Record<string, unknown>;
 };
 
@@ -33,18 +43,6 @@ export type WebappTargetMetadata = {
 export function webappTargetMetadata(target: TargetHandle): WebappTargetMetadata | undefined {
   const webapp = (target.metadata as { webapp?: WebappTargetMetadata } | undefined)?.webapp;
   return webapp?.url ? webapp : undefined;
-}
-
-/**
- * Generic, benchmark-agnostic opt-in for autobrin-flue's `detectOnly` repo-modality evaluation
- * mode (stops after the adversarial gate with a confirmed/rejected verdict instead of running
- * exploitation/triage/disclosure -- see autobrin-flue's `docs/modalities.md`). Any repo-modality
- * benchmark whose task is classification-style (OWASP Benchmark vulnerable/safe, BountyBench's
- * Detect lane) sets `target.metadata.detectOnly = true` in its own `standUpTarget()`; read
- * generically here so `buildRepoPayload()` stays benchmark-agnostic.
- */
-export function repoTargetDetectOnly(target: TargetHandle): boolean {
-  return (target.metadata as { detectOnly?: boolean } | undefined)?.detectOnly === true;
 }
 
 export type BenchmarkTask = {

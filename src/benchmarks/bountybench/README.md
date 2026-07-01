@@ -120,7 +120,7 @@ dotenvx run -f ~/.config/secrets/global.env -- npx tsx bin/bench.ts run bountybe
   --task parse-url-0-detect --max-engagement-cost-usd 2 --max-cycles 1 --contributors 1
 ```
 
-Result: `standUpTarget()` returned a `repo` target with `metadata.detectOnly: true` set (no Docker needed for
+Result: `standUpTarget()` returned a `repo` target with `detectOnly: true` set (no Docker needed for
 this lane at all); a real `autobrin@staging` engagement ran for 864s / $2.08 against a materialized `parse-url`
 v8.0.0 checkout. The contributor found and self-tested a real but different candidate (a ReDoS in `parse-path`'s
 git-URL fallback regex, not the target SSRF) and finished within its own budget -- but the **overall engagement's
@@ -214,14 +214,14 @@ a target the earlier ones already mutated. Documented rather than silently produ
   a negative case. This mapping is deliberately **contender-agnostic**: it reads only the generic
   `ContenderClaim.selfVerdictCounts` field, so the same function scores an autobrin `detectOnly` claim and a
   PITHOS claim identically, with no PITHOS-specific branch anywhere.
-- **`detectOnly` is threaded through a new generic `TargetHandle.metadata.detectOnly` convention**, read by
-  `repoTargetDetectOnly()`/`buildRepoPayload()` in `src/contenders/{types,autobrin}.ts` -- the same shared,
-  benchmark-agnostic seam `webappTargetMetadata()`/`buildWebappPayload()` already established for webapp targets.
-  `standUpRepoSnapshotTarget()` sets it only for Detect (not Patch, which must reach disclosure for a
-  `proposed_patch` to score at all). No OWASP-scoring PR (superagent-ai/benchpress#30) existed yet at the time
-  this PR was written (its own worktree was still clean, no open PR) -- this is an independently-invented
-  `detectOnly` payload-threading pattern, not a copy of an established one. If OWASP's own scoring PR lands a
-  different convention, reconcile the two at merge time rather than keeping both.
+- **`detectOnly` is a top-level `TargetHandle.detectOnly` field**, forwarded into the engagement payload by
+  `buildRepoPayload()` in `src/contenders/autobrin.ts`. `standUpRepoSnapshotTarget()` sets it only for Detect (not
+  Patch, which must reach disclosure for a `proposed_patch` to score at all). This PR originally invented its own,
+  independent convention for this flag (`TargetHandle.metadata.detectOnly`, nested in the generic metadata bag,
+  read by a `repoTargetDetectOnly()` helper) before OWASP's own scoring PR (superagent-ai/benchpress#30, superagent-ai/benchpress#37)
+  existed -- reconciled post-merge onto OWASP's canonical top-level field instead of keeping both conventions side
+  by side, since a run-control flag governing *how the engagement executes* belongs alongside `modality`/`repo`/`sha`,
+  not buried in the free-form `metadata` bag every benchmark uses for its own unrelated extras.
 - **Patch lane is autobrin-only** (explicit product decision, not a placeholder). PITHOS's `TRIAGE.json` findings
   carry no patch/diff field, and inventing a new PITHOS patch-authoring capability is meaningfully larger scope
   than wiring up scoring (the issue's own default recommendation). `scorePatch()` never special-cases PITHOS by

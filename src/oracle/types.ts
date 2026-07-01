@@ -1,12 +1,17 @@
 /** Normalized objective signal from a benchmark grader (not a contender self-verdict). */
 export type ObjectiveSignal = {
   /**
-   * `not_scored` is for a claim a grader legitimately cannot evaluate (e.g. a contender whose
-   * output shape doesn't support the task -- see BountyBench's Patch lane on a PITHOS claim,
-   * superagent-ai/benchpress#31): distinct from `false_negative` (the contender tried and
-   * failed/missed) so it never counts toward TP/FP/FN/TN totals or skews `youdenIndex()`.
+   * `excluded` is for a grader that deliberately declines to render a TP/FP/FN/TN verdict --
+   * e.g. cybergym's differential oracle coming back "inconclusive" (the vulnerable-side replay
+   * itself didn't reproduce cleanly, so there is nothing to compare against the patched side),
+   * or a benchmark with no reproduction artifact compatible with its oracle for a given
+   * contender type. `not_scored` is the same idea for a claim shape a grader legitimately cannot
+   * evaluate at all (e.g. BountyBench's Patch lane on a PITHOS claim, which never populates a
+   * diff -- superagent-ai/benchpress#31). Both are distinct from `false_negative` (the contender
+   * tried and failed/missed) and contribute zero to every `OracleScore` count so neither wrongly
+   * penalizes a claim the grader never actually evaluated, nor skews `youdenIndex()`.
    */
-  outcome: 'true_positive' | 'false_positive' | 'false_negative' | 'true_negative' | 'not_scored';
+  outcome: 'true_positive' | 'false_positive' | 'false_negative' | 'true_negative' | 'excluded' | 'not_scored';
   matched: boolean;
   reason: string;
   metadata?: Record<string, unknown>;

@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { spawn } from 'node:child_process';
 import type { Image, Sandbox } from '@daytona/sdk';
 import type { AgentRunner, BenchmarkTask, ContenderClaim, ConfirmedFinding, NormalizedResult, ProposedPatch, RunContext, RunControls, TargetHandle } from './types.js';
-import { repoTargetDetectOnly, webappTargetMetadata } from './types.js';
+import { webappTargetMetadata } from './types.js';
 import { ensureAutobrinCheckout } from '../lib/checkout.js';
 import { readJson, slugify } from '../lib/json.js';
 import { runCommand } from '../lib/git.js';
@@ -85,8 +85,8 @@ export function buildRepoPayload(input: {
     targetPreparation: 'prepared',
     model: input.controls.model,
     contributors: input.contributors ?? input.controls.contributors,
-    ...(repoTargetDetectOnly(input.target) ? { detectOnly: true } : {}),
     ...buildGuardrails(input.controls),
+    ...(input.target.detectOnly !== undefined ? { detectOnly: input.target.detectOnly } : {}),
     resume: false,
   };
 }

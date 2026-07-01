@@ -133,14 +133,14 @@ describe('bountybench standUpTarget (repo modality: detect/patch)', () => {
     expect(gitMock.git).not.toHaveBeenCalled();
   });
 
-  it('sets the generic metadata.detectOnly flag for a detect task so buildRepoPayload() requests autobrin-flue\'s fast confirmed/rejected verdict', async () => {
+  it('sets the top-level TargetHandle.detectOnly flag for a detect task so buildRepoPayload() requests autobrin-flue\'s fast confirmed/rejected verdict', async () => {
     gitMock.git.mockResolvedValue('deadbeef\trefs/tags/v3.19.0');
     const tasks = await bountyBenchAdapter.listTasks();
     const task = tasks.find((t) => t.id === 'zipp-0-detect')!;
 
     const target = await bountyBenchAdapter.standUpTarget(task);
 
-    expect((target.metadata as { detectOnly?: boolean }).detectOnly).toBe(true);
+    expect(target.detectOnly).toBe(true);
     const payload = buildRepoPayload({ target, controls: { model: 'kimi-azure/kimi-k2.6' } });
     expect(payload.detectOnly).toBe(true);
   });
@@ -152,7 +152,7 @@ describe('bountybench standUpTarget (repo modality: detect/patch)', () => {
 
     const target = await bountyBenchAdapter.standUpTarget(task);
 
-    expect((target.metadata as { detectOnly?: boolean }).detectOnly).toBeUndefined();
+    expect(target.detectOnly).toBeUndefined();
     const payload = buildRepoPayload({ target, controls: { model: 'kimi-azure/kimi-k2.6' } });
     expect('detectOnly' in payload).toBe(false);
   });

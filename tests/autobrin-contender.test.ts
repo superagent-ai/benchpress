@@ -167,20 +167,14 @@ describe('buildRepoPayload', () => {
     expect(payload.contributors).toBe(2);
   });
 
-  it('omits detectOnly by default (unchanged behavior for targets that never set it)', () => {
+  it('omits detectOnly entirely when the target does not request it (unchanged default behavior)', () => {
     const payload = buildRepoPayload({ target, controls });
     expect('detectOnly' in payload).toBe(false);
   });
 
-  it('sets detectOnly: true when the target generically opts in via metadata.detectOnly', () => {
-    const detectOnlyTarget = { ...target, metadata: { detectOnly: true } };
-    const payload = buildRepoPayload({ target: detectOnlyTarget, controls });
+  it('forwards target.detectOnly into the payload for classification benchmarks (e.g. owasp, bountybench)', () => {
+    const payload = buildRepoPayload({ target: { ...target, detectOnly: true }, controls });
     expect(payload.detectOnly).toBe(true);
-  });
-
-  it('ignores a falsy or non-boolean metadata.detectOnly rather than coercing it', () => {
-    expect('detectOnly' in buildRepoPayload({ target: { ...target, metadata: { detectOnly: false } }, controls })).toBe(false);
-    expect('detectOnly' in buildRepoPayload({ target: { ...target, metadata: { detectOnly: 'yes' } }, controls })).toBe(false);
   });
 });
 

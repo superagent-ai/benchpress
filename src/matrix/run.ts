@@ -66,7 +66,7 @@ export async function runTaskAcrossContenders(input: {
     const contenderResults: TaskRunResult['contenderResults'] = [];
     for (const contender of contenders) {
       const result = await contender.run({ task, target, controls, context });
-      const oracleScore = await adapter.score({ task, target, claim: result.claim });
+      const oracleScore = await adapter.score({ task, target, claim: result.claim, result });
       const selfConfirmed = (result.claim.selfVerdictCounts.confirmed ?? 0) > 0;
       const graderMatched = oracleScore.truePositives > 0;
       contenderResults.push({

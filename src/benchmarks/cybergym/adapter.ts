@@ -2,23 +2,17 @@ import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { BenchmarkAdapter } from '../types.js';
-import { NotImplementedBenchmarkError } from '../types.js';
 import type { BenchmarkTask, TargetHandle } from '../../contenders/types.js';
+import type { OracleScore } from '../../oracle/types.js';
 import { readJsonRequired } from '../../lib/json.js';
 import { cacheRoot } from '../../lib/paths.js';
 import { ensureFileDownloaded } from '../../lib/http.js';
 import { ensureDockerImage, type PulledDockerImage } from '../../lib/docker.js';
 import { extractTarGz } from '../../lib/archive.js';
 import { cyberGymDockerImageRef, cyberGymHfFileUrl, type CyberGymTaskSpec } from './types.js';
+import { scoreCyberGymClaim } from './score.js';
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
-
-const CYBERGYM_DEPENDENCY =
-  'Requires autobrin-flue PoC-generation contributor skill (superagent-ai/autobrin-flue#180) and ' +
-  'differential patched-oracle confirmation primitive (superagent-ai/autobrin-flue#181). Both are open ' +
-  'and unmerged into staging as of this adapter -- setup()/listTasks()/standUpTarget() are real ' +
-  '(vendored task metadata, real pre-/post-patch Docker pulls); score() intentionally throws rather ' +
-  'than fake a result.';
 
 export type CyberGymTargetMetadata = CyberGymTaskSpec & {
   /** Local extracted copy of `repo-vul.tar.gz` -- the only codebase a contributor may see (level1). */
@@ -39,21 +33,29 @@ async function loadTaskSpecs(): Promise<CyberGymTaskSpec[]> {
  * Pure TargetHandle builder, split out from standUpTarget() so its shape is
  * unit-testable without Docker/network.
  *
- * Deliberately omits `repo`/`sha`: ARVO/OSS-Fuzz benchmark instances are
- * frozen dockerized snapshots with no live-clonable git ref at the vulnerable
- * state. The generic autobrin contender (`src/contenders/autobrin.ts`)
- * git-clones `target.repo`@`target.sha` whenever both are set on a
- * `modality: 'repo'` target -- setting `repo` here would silently clone the
- * *live* HEAD of the upstream project (a different, unrelated codebase)
- * instead of the pinned vulnerable snapshot already extracted to
- * `metadata.sourceDir`. `metadata.projectMainRepo` still carries the
- * upstream URL for informational/provenance purposes.
+ * `repo` is set to the local, already-extracted, sha256-verified
+ * `metadata.sourceDir` -- deliberately NOT `metadata.projectMainRepo` (the
+ * live upstream GitHub URL). The generic autobrin contender
+ * (`src/contenders/autobrin.ts`) materializes `target.repo`@`target.sha`
+ * into the engagement workspace via autobrin-flue's `prepareWorkspace()`
+ * whenever `repo` is set on a `modality: 'repo'` target; if `repo` were the
+ * upstream URL, that would silently clone the *live* HEAD of an unrelated
+ * codebase instead of the pinned vulnerable snapshot. Because `sourceDir`
+ * resolves to a local, non-git directory, autobrin-flue's own
+ * `cloneOrCopyTarget()` takes its plain-copy branch (no git involved) and
+ * the contributor gets the real vulnerable source under `workspace/target`.
+ * `sha` stays unset -- there is no commit to pin a plain directory copy to,
+ * and autobrin-flue's `targetPreparation: "prepared"` re-check only
+ * enforces a matching `HEAD` when `sha` is present. `metadata.sourceDir`
+ * and `metadata.projectMainRepo` still carry both values directly for
+ * anything (e.g. `score()`) that needs to tell them apart.
  */
 export function buildCyberGymTargetHandle(taskId: string, metadata: CyberGymTargetMetadata): TargetHandle {
   return {
     benchmarkId: 'cybergym',
     taskId,
     modality: 'repo',
+    repo: metadata.sourceDir,
     metadata,
   };
 }
@@ -103,7 +105,7 @@ export const cyberGymAdapter: BenchmarkAdapter = {
     // Pull both pre-/post-patch dockerized build envs up front (once per task,
     // fairness invariant: benchpress stands up ONE target and fans it out to
     // every contender). The fix image exists solely for the harness's own
-    // future differential oracle (autobrin-flue#181) -- it must never reach a
+    // differential oracle (score.ts, autobrin-flue#181) -- it must never reach a
     // contributor authoring a PoC against the vul image.
     const vulImage = await ensureDockerImage(cyberGymDockerImageRef(spec, 'vul'));
     const fixImage = await ensureDockerImage(cyberGymDockerImageRef(spec, 'fix'));
@@ -112,7 +114,15 @@ export const cyberGymAdapter: BenchmarkAdapter = {
     return buildCyberGymTargetHandle(task.id, metadata);
   },
 
-  score() {
-    throw new NotImplementedBenchmarkError('cybergym', CYBERGYM_DEPENDENCY);
+  /**
+   * Real for `autobrin` contenders: replays the confirmed attempt's `repro.sh` via
+   * autobrin-flue's differential-oracle CLI (superagent-ai/autobrin-flue#181) against the
+   * pulled `fixImage`, using the PoC-generation contributor skill's output (autobrin-flue#180)
+   * as the attempt to replay. Both capabilities merged into `staging` (see issue #28) -- see
+   * `score.ts` for the exact mechanism and README.md for the non-autobrin (e.g. PITHOS) scoping
+   * decision.
+   */
+  async score(input): Promise<OracleScore> {
+    return scoreCyberGymClaim({ target: input.target, result: input.result });
   },
 };
