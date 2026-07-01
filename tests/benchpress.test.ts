@@ -74,6 +74,12 @@ describe('registry', () => {
     expect(BENCHMARK_CAPABILITY_DEPENDENCIES['cve-bench']).toBeUndefined();
   });
 
+  it('owasp is implemented, not stubbed (superagent-ai/benchpress#30)', () => {
+    const adapter = resolveBenchmark('owasp');
+    expect(adapter.lane).toBe('scientific');
+    expect(BENCHMARK_CAPABILITY_DEPENDENCIES['owasp']).toBeUndefined();
+  });
+
   it('bountybench is implemented (Exploit lane real), not a full stub', () => {
     // Reconciling superagent-ai/benchpress#20 with #21 (cve-bench) retired the last
     // `stubAdapter()` user: bountybench's setup()/listTasks()/standUpTarget() are all real now

@@ -6,6 +6,15 @@ export type TargetHandle = {
   modality: 'repo' | 'webapp' | 'model';
   repo?: string;
   sha?: string;
+  /**
+   * Requests autobrin-flue's detect-only mode (stops after the adversarial gate with a fast
+   * confirmed/rejected verdict, skipping exploitation/triage/disclosure) for this task's
+   * engagement. For classification-style benchmarks (e.g. `owasp`) that grade a contender's
+   * confirmed/rejected call against known ground truth rather than needing a full advisory.
+   * Only `buildRepoPayload` (`contenders/autobrin.ts`) reads this today; undefined for every
+   * adapter that doesn't set it, which omits the field from the built payload entirely.
+   */
+  detectOnly?: boolean;
   metadata?: Record<string, unknown>;
 };
 

@@ -17,16 +17,16 @@ benchpress is an **evaluation harness**, not a product core. Keep benchmark-spec
 
 Scientific adapters are **stubbed** until autobrin-flue ships the required generic capabilities. `cve-bench` was
 unblocked once `webapp` modality + computer-use confirmation shipped (see `src/benchmarks/cve-bench/adapter.ts`);
-it no longer appears below.
+`owasp` was unblocked once detect-only mode shipped (see `src/benchmarks/owasp/adapter.ts`). Neither appears below
+anymore.
 
 | Benchmark | Required autobrin-flue capability |
 | --- | --- |
 | `cybergym` | PoC-generation contributor skill + differential patched oracle |
 | `bountybench` | `webapp` modality (Exploit — **shipped, implemented**) / detect-only mode (Detect+Patch — [autobrin-flue#182](https://github.com/superagent-ai/autobrin-flue/issues/182), still open) |
-| `owasp` | `score()` only: detect-only mode ([autobrin-flue#182](https://github.com/superagent-ai/autobrin-flue/issues/182), unmerged) for CWE-label Youden scoring |
 | `repo-cve-smoke` | `repo` modality only — **dev-smoke lane**, not for scientific reporting |
 
-Do not implement scientific benchmark bodies until the dependency row is satisfied in autobrin-flue. CyberGym is a documented, issue-scoped exception (superagent-ai/benchpress#16): `setup()`/`listTasks()`/`standUpTarget()` don't need the blocked capabilities (vendored task metadata, real dockerized pre-/post-patch target stand-up), so they're implemented for real against a representative subset; only `score()` throws `NotImplementedBenchmarkError` until autobrin-flue#180 (PoC-gen skill) and #181 (differential oracle) land. **Exception carved out by [benchpress#14](https://github.com/superagent-ai/benchpress/issues/14):** `owasp`'s `setup()`/`listTasks()`/`standUpTarget()` don't need detect-only mode at all (vendoring + CSV ground-truth parsing + a `repo`-modality `TargetHandle` are self-contained), so they're implemented for real; only `score()` stays blocked and throws `NotImplementedBenchmarkError`. The same **task-type** granularity applies to `bountybench`: its Exploit lane's dependency (`webapp` modality) is satisfied, so `adapter.ts` implements it for real; its Detect/Patch lanes' dependency (detect-only mode) is not, so `score()` throws `BountyBenchScoreBlockedError` for those task types instead of a full stub (`setup()`/`listTasks()`/`standUpTarget()` need only already-shipped `repo` modality, so those run for real too). See `src/benchmarks/bountybench/README.md`.
+Do not implement scientific benchmark bodies until the dependency row is satisfied in autobrin-flue. CyberGym is a documented, issue-scoped exception (superagent-ai/benchpress#16): `setup()`/`listTasks()`/`standUpTarget()` don't need the blocked capabilities (vendored task metadata, real dockerized pre-/post-patch target stand-up), so they're implemented for real against a representative subset; only `score()` throws `NotImplementedBenchmarkError` until autobrin-flue#180 (PoC-gen skill) and #181 (differential oracle) land. `owasp`'s `score()` (superagent-ai/benchpress#30) grades detect-only mode's confirmed/rejected verdict (`TargetHandle.detectOnly`, read by `buildRepoPayload` in `src/contenders/autobrin.ts`) against `expectedresults-1.2.csv` ground truth into TP/FP/FN/TN, reported via the existing generic `youdenIndex()`/`aggregateOracleScores()` pipeline (`src/matrix/report.ts`) -- no benchmark-specific reporting code needed. The same **task-type** granularity applies to `bountybench`: its Exploit lane's dependency (`webapp` modality) is satisfied, so `adapter.ts` implements it for real; its Detect/Patch lanes' dependency (detect-only mode) is not, so `score()` throws `BountyBenchScoreBlockedError` for those task types instead of a full stub (`setup()`/`listTasks()`/`standUpTarget()` need only already-shipped `repo` modality, so those run for real too). See `src/benchmarks/bountybench/README.md`.
 
 ## Adding a benchmark
 
