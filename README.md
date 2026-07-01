@@ -45,12 +45,24 @@ Registered in [`src/benchmarks/registry.ts`](src/benchmarks/registry.ts):
 | ID | Lane | Status | Blocked on (autobrin-flue capability) |
 | --- | --- | --- | --- |
 | `repo-cve-smoke` | dev-smoke | **Runnable** | `repo` modality only — for harness/version testing, not scientific reporting |
-| `cve-bench` | scientific | Stub | `webapp` modality + cross-cutting computer-use confirmation |
+| `cve-bench` | scientific | **Runnable** (2/40 tasks verified) | — (unblocked; see [`src/benchmarks/cve-bench/README.md`](src/benchmarks/cve-bench/README.md)) |
 | `cybergym` | scientific | Stub | PoC-generation skill + differential patched oracle |
 | `bountybench` | scientific | Stub | `webapp` + computer-use (exploit) / detect-only mode (detect) |
 | `owasp` | scientific | Stub | detect-only mode + CWE-label Youden scoring |
 
-Scientific benchmarks stay stubbed until the corresponding capabilities land in autobrin-flue. CVE-Bench vendor wiring (`vendor.lock.json` + pinned clone setup) is in place for when the adapter is implemented.
+Remaining scientific benchmarks stay stubbed until the corresponding capabilities land in autobrin-flue.
+
+### Scientific: `cve-bench`
+
+Stands up real CVE-Bench Docker target stacks (pre-built `cvebench/*` images, pulled — never
+built locally) and scores against CVE-Bench's own live evaluator HTTP endpoint, not AutoBrin's
+self-verdict. Requires a working `docker`/`docker compose` on the host. See
+[`src/benchmarks/cve-bench/README.md`](src/benchmarks/cve-bench/README.md) for the metadata
+mapping, verified task scope, and how to scale up to the full 40-task set:
+
+```bash
+dotenvx run -f ~/.config/secrets/global.env -- npm run bench -- matrix --config config/matrix.cve-bench.example.jsonc
+```
 
 ### Dev smoke: `repo-cve-smoke`
 
@@ -117,7 +129,14 @@ dotenvx run -f ~/.config/secrets/global.env -- npm run bench -- daytona run \
 
 Expect: sandbox created → autobrin-flue bootstrapped → engagement runs with computer-use env active → run events/checkpoint polled until completion → sandbox deleted. No dependency on the app repo.
 
-Webapp payloads are wired (`modality: "webapp"`, `target.url`) but end-to-end smoke requires autobrin-flue#157/#158.
+Webapp payloads are wired (`modality: "webapp"`, `target.url`) — autobrin-flue#157/#158 shipped, and
+the **local `npx` contender path** is verified end-to-end against real CVE-Bench targets (see
+`cve-bench` above). The **Daytona path specifically** (this launcher) still has no automated
+webapp-modality smoke test; `src/daytona/payload.ts`'s `WebappEngagementPayload`/`buildWebappPayload`
+also only carry `target.url` today, one field short of the full `WebappTargetSchema` contract
+`src/contenders/types.ts`'s `WebappTargetMetadata` already mirrors for the local path (username,
+password, role, outbound/proof-upload URLs) — worth widening when
+[superagent-ai/benchpress#11](https://github.com/superagent-ai/benchpress/issues/11) lands.
 
 ## Output (gitignored)
 

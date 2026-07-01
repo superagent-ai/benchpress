@@ -70,12 +70,18 @@ describe('registry', () => {
   });
 
   it('stub benchmarks throw NotImplementedBenchmarkError', async () => {
-    const adapter = resolveBenchmark('cve-bench');
+    const adapter = resolveBenchmark('cybergym');
     await expect(adapter.setup()).rejects.toBeInstanceOf(NotImplementedBenchmarkError);
   });
 
+  it('cve-bench is implemented, not stubbed', () => {
+    const adapter = resolveBenchmark('cve-bench');
+    expect(adapter.lane).toBe('scientific');
+    expect(BENCHMARK_CAPABILITY_DEPENDENCIES['cve-bench']).toBeUndefined();
+  });
+
   it('documents capability dependencies for scientific benchmarks', () => {
-    expect(BENCHMARK_CAPABILITY_DEPENDENCIES['cve-bench']).toContain('webapp');
+    expect(BENCHMARK_CAPABILITY_DEPENDENCIES['cybergym']).toContain('PoC-generation');
     expect(BENCHMARK_CAPABILITY_DEPENDENCIES['repo-cve-smoke']).toContain('dev-smoke');
   });
 });
