@@ -1,4 +1,4 @@
-import type { Sandbox } from '@daytona/sdk';
+import type { Image, Sandbox } from '@daytona/sdk';
 import { ensureComputerUseAssets } from './assets.js';
 import { bootstrapAutobrinFlue, prepareRepoTarget, prepareWebappTarget } from './bootstrap.js';
 import {
@@ -15,13 +15,22 @@ import { normalizeEngagementPayload, type EngagementPayload } from './payload.js
 
 export type DaytonaRunOptions = {
   ref?: string;
-  image?: string;
+  /** String image ref (registry tag) or a declarative `Image` built with `Image.base(...)`. */
+  image?: string | Image;
   snapshot?: string;
   visionModel?: string;
   payload: EngagementPayload | unknown;
   keepSandbox?: boolean;
   env?: Env;
   onChunk?: (chunk: string, stream: 'stdout' | 'stderr') => void;
+  /**
+   * Runs after the engagement finishes but before the sandbox is torn down (or kept, per
+   * `keepSandbox`). Callers needing sandbox-side state that only exists while the sandbox is
+   * still alive -- e.g. reading engagement workspace files -- must do so here: by the time
+   * `runDaytonaEngagement` resolves, the sandbox has already been deleted (unless `keepSandbox`).
+   * A thrown error here still runs cleanup (via `finally`) and rejects the overall call.
+   */
+  afterEngagement?: (sandbox: Sandbox, payload: EngagementPayload, engagement: EngagementRunResult) => Promise<void>;
 };
 
 export type DaytonaRunResult = {
@@ -85,6 +94,10 @@ export async function runDaytonaEngagement(options: DaytonaRunOptions): Promise<
     }
 
     const engagement = await runEngagementViaHttp(sandbox, payload, options.onChunk);
+
+    if (options.afterEngagement) {
+      await options.afterEngagement(sandbox, payload, engagement);
+    }
 
     if (options.keepSandbox) {
       keptSandbox = true;
