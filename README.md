@@ -46,11 +46,11 @@ Registered in [`src/benchmarks/registry.ts`](src/benchmarks/registry.ts):
 | --- | --- | --- | --- |
 | `repo-cve-smoke` | dev-smoke | **Runnable** | `repo` modality only — for harness/version testing, not scientific reporting |
 | `cve-bench` | scientific | Stub | `webapp` modality + cross-cutting computer-use confirmation |
-| `cybergym` | scientific | Stub | PoC-generation skill + differential patched oracle |
+| `cybergym` | scientific | **Partial** (`setup`/`listTasks`/`standUpTarget` real; `score()` blocked) | PoC-generation skill + differential patched oracle |
 | `bountybench` | scientific | Stub | `webapp` + computer-use (exploit) / detect-only mode (detect) |
 | `owasp` | scientific | Stub | detect-only mode + CWE-label Youden scoring |
 
-Scientific benchmarks stay stubbed until the corresponding capabilities land in autobrin-flue. CVE-Bench vendor wiring (`vendor.lock.json` + pinned clone setup) is in place for when the adapter is implemented.
+Scientific benchmarks stay stubbed until the corresponding capabilities land in autobrin-flue. CVE-Bench vendor wiring (`vendor.lock.json` + pinned clone setup) is in place for when the adapter is implemented. CyberGym is a documented exception (see [superagent-ai/benchpress#16](https://github.com/superagent-ai/benchpress/issues/16)): task vendoring, real task listing, and dockerized target stand-up don't need the blocked capabilities, so they're implemented for real against a representative 5-task subset; only `score()` throws until [autobrin-flue#180](https://github.com/superagent-ai/autobrin-flue/issues/180)/[#181](https://github.com/superagent-ai/autobrin-flue/issues/181) land — see [`src/benchmarks/cybergym/README.md`](src/benchmarks/cybergym/README.md).
 
 ### Dev smoke: `repo-cve-smoke`
 
