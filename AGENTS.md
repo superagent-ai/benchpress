@@ -25,7 +25,7 @@ Scientific adapters are **stubbed** until autobrin-flue ships the required gener
 | `owasp` | detect-only mode + CWE-label Youden scoring |
 | `repo-cve-smoke` | `repo` modality only — **dev-smoke lane**, not for scientific reporting |
 
-Do not implement scientific benchmark bodies until the dependency row is satisfied in autobrin-flue. CVE-Bench may keep `vendor.lock.json` + `setup.ts` wired; `adapter.ts` stays stub until `webapp`/computer-use land.
+Do not implement scientific benchmark bodies until the dependency row is satisfied in autobrin-flue. CVE-Bench may keep `vendor.lock.json` + `setup.ts` wired; `adapter.ts` stays stub until `webapp`/computer-use land. CyberGym is a documented, issue-scoped exception (superagent-ai/benchpress#16): `setup()`/`listTasks()`/`standUpTarget()` don't need the blocked capabilities (vendored task metadata, real dockerized pre-/post-patch target stand-up), so they're implemented for real against a representative subset; only `score()` throws `NotImplementedBenchmarkError` until autobrin-flue#180 (PoC-gen skill) and #181 (differential oracle) land.
 
 ## Adding a benchmark
 
