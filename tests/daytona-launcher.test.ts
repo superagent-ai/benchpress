@@ -31,6 +31,7 @@ const assetsMocks = vi.hoisted(() => ({
     visionHelperPresent: true,
     usedFallback: false,
   })),
+  ensureComputerUseStarted: vi.fn(async () => true),
 }));
 vi.mock('../src/daytona/assets.js', () => assetsMocks);
 
@@ -60,6 +61,7 @@ describe('runDaytonaEngagement afterEngagement hook', () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     clientMocks.createSandbox.mockReset().mockResolvedValue({ id: 'sandbox-1' });
     clientMocks.deleteDaytonaSandbox.mockReset().mockResolvedValue(undefined);
+    assetsMocks.ensureComputerUseStarted.mockReset().mockResolvedValue(true);
     engagementMocks.runEngagementViaHttp.mockReset().mockResolvedValue({
       exitCode: 0,
       streamLogPath: '/logs/stream.jsonl',
@@ -148,5 +150,74 @@ describe('runDaytonaEngagement afterEngagement hook', () => {
     expect(hookCalled).toBe(true);
     expect(result.keptSandbox).toBe(true);
     expect(clientMocks.deleteDaytonaSandbox).not.toHaveBeenCalled();
+  });
+});
+
+// Regression (superagent-ai/benchpress#38): runDaytonaEngagement never called
+// sandbox.computerUse.start(), so Xvfb/xfce4/x11vnc/novnc never launched and computer-use
+// confirmation always failed. ensureComputerUseStarted (assets.js) owns the actual start+poll
+// logic and is unit-tested in daytona-doctor.test.ts; these tests only cover runDaytonaEngagement's
+// gating and sequencing contract around it.
+describe('runDaytonaEngagement computer-use start gating (superagent-ai/benchpress#38)', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    clientMocks.createSandbox.mockReset().mockResolvedValue({ id: 'sandbox-1' });
+    clientMocks.deleteDaytonaSandbox.mockReset().mockResolvedValue(undefined);
+    bootstrapMocks.bootstrapAutobrinFlue.mockReset().mockResolvedValue(undefined);
+    assetsMocks.ensureComputerUseStarted.mockReset().mockResolvedValue(true);
+    engagementMocks.runEngagementViaHttp.mockReset().mockResolvedValue({
+      exitCode: 0,
+      streamLogPath: '/logs/stream.jsonl',
+      resultPath: '/result.json',
+      resultJson: { status: 'ok' },
+    });
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const baseOptions = {
+    image: 'test-image',
+    payload: { modality: 'repo' as const, repo: 'owner/repo' },
+    env: { DAYTONA_API_KEY: 'test' },
+  };
+
+  it('starts computer-use (with the resolved base URL) after sandbox creation and before bootstrap, by default', async () => {
+    const order: string[] = [];
+    assetsMocks.ensureComputerUseStarted.mockImplementation(async () => {
+      order.push('computerUseStarted');
+      return true;
+    });
+    bootstrapMocks.bootstrapAutobrinFlue.mockImplementation(async () => {
+      order.push('bootstrap');
+    });
+
+    await runDaytonaEngagement(baseOptions);
+
+    expect(order).toEqual(['computerUseStarted', 'bootstrap']);
+    expect(assetsMocks.ensureComputerUseStarted).toHaveBeenCalledWith(
+      { id: 'sandbox-1' },
+      { baseUrl: 'http://127.0.0.1:2280' },
+    );
+  });
+
+  it('skips computer-use start entirely when AUTOBRIN_COMPUTER_USE=none', async () => {
+    await runDaytonaEngagement({
+      ...baseOptions,
+      env: { ...baseOptions.env, AUTOBRIN_COMPUTER_USE: 'none' },
+    });
+
+    expect(assetsMocks.ensureComputerUseStarted).not.toHaveBeenCalled();
+    expect(bootstrapMocks.bootstrapAutobrinFlue).toHaveBeenCalled();
+  });
+
+  it('still completes the engagement when computer-use never becomes ready (non-fatal)', async () => {
+    assetsMocks.ensureComputerUseStarted.mockResolvedValue(false);
+
+    const result = await runDaytonaEngagement(baseOptions);
+
+    expect(result.engagement.exitCode).toBe(0);
+    expect(clientMocks.deleteDaytonaSandbox).toHaveBeenCalledWith('sandbox-1', baseOptions.env);
   });
 });

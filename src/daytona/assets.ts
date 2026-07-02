@@ -3,6 +3,8 @@ import {
   AUTOBRIN_BUNDLED_COMPUTER_USE_SKILL,
   AUTOBRIN_FLUE_DIR,
   BENCHPRESS_ROOT,
+  COMPUTER_USE_START_POLL_INTERVAL_MS,
+  COMPUTER_USE_START_TIMEOUT_MS,
   DEFAULT_COMPUTER_USE_BASE_URL,
 } from './constants.js';
 import { executeChecked, executeOptional } from './sandbox-exec.js';
@@ -61,6 +63,58 @@ export async function checkComputerUseScreenshot(
     exitCode: response.exitCode,
     output,
   };
+}
+
+export type ComputerUseStartOptions = {
+  baseUrl?: string;
+  timeoutMs?: number;
+  pollIntervalMs?: number;
+};
+
+/**
+ * Starts the sandbox's computer-use process stack (Xvfb, xfce4, x11vnc, novnc) via the Daytona
+ * SDK and polls a real screenshot capture until it succeeds or `timeoutMs` elapses.
+ *
+ * `sandbox.computerUse.start()` resolving does not mean the desktop is screenshot-ready yet --
+ * these are supervised processes that take a moment to come up. Without this wait, callers race
+ * ahead and see the exact `computerUseScreenshotOk: false` symptom this fixes (see
+ * https://github.com/superagent-ai/benchpress/issues/38).
+ *
+ * Never throws: a failed start() call or a readiness timeout is logged clearly and this returns
+ * `false` so callers proceed without computer-use rather than aborting the whole engagement --
+ * some sandboxes genuinely don't support it, and most engagements only need it for optional
+ * visual confirmation (see `ensureComputerUseAssets` below, which treats the same signals as
+ * non-fatal for the same reason).
+ */
+export async function ensureComputerUseStarted(
+  sandbox: Sandbox,
+  options: ComputerUseStartOptions = {},
+): Promise<boolean> {
+  const baseUrl = options.baseUrl ?? DEFAULT_COMPUTER_USE_BASE_URL;
+  const timeoutMs = options.timeoutMs ?? COMPUTER_USE_START_TIMEOUT_MS;
+  const pollIntervalMs = options.pollIntervalMs ?? COMPUTER_USE_START_POLL_INTERVAL_MS;
+
+  try {
+    await sandbox.computerUse.start();
+  } catch (error) {
+    console.warn(
+      `sandbox.computerUse.start() failed on sandbox ${sandbox.id}: ${error instanceof Error ? error.message : String(error)}. Continuing without computer-use.`,
+    );
+    return false;
+  }
+
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if ((await checkComputerUseScreenshot(sandbox, baseUrl)).ok) {
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+  }
+
+  console.warn(
+    `Computer-use did not become screenshot-ready within ${timeoutMs}ms of sandbox.computerUse.start() on sandbox ${sandbox.id} (Xvfb/xfce4/x11vnc/novnc may not be supported on this image). Continuing without confirmed computer-use readiness.`,
+  );
+  return false;
 }
 
 export async function ensureComputerUseAssets(sandbox: Sandbox): Promise<ComputerUseAssetStatus> {

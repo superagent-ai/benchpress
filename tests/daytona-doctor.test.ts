@@ -4,7 +4,7 @@ import type { AddressInfo } from 'node:net';
 import type { Sandbox } from '@daytona/sdk';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { checkComputerUseScreenshot, ensureComputerUseAssets } from '../src/daytona/assets.js';
+import { checkComputerUseScreenshot, ensureComputerUseAssets, ensureComputerUseStarted } from '../src/daytona/assets.js';
 import { describeAutobrinFlueCloneFailure } from '../src/daytona/bootstrap.js';
 
 const clientMocks = vi.hoisted(() => ({
@@ -44,6 +44,34 @@ function scriptedSandbox(
     return fallback;
   };
   return fakeSandbox(executeCommand);
+}
+
+/**
+ * Sandbox stub for `ensureComputerUseStarted`: a mockable `computerUse.start()` plus a
+ * screenshot-check response sequence (the last entry repeats once exhausted), so tests can model
+ * "ready immediately", "ready after N polls", and "never ready" without real sleeps/servers.
+ */
+function computerUseStartSandbox(options: {
+  start?: () => Promise<{ message?: string }>;
+  screenshotResults: ExecuteCommandResult[];
+  id?: string;
+}): Sandbox & { screenshotCallCount: () => number } {
+  let callCount = 0;
+  const start = options.start ?? (async () => ({ message: 'started' }));
+  const executeCommand: ExecuteCommandFn = async (command) => {
+    if (command.includes('computeruse/screenshot')) {
+      const index = Math.min(callCount, options.screenshotResults.length - 1);
+      callCount += 1;
+      return options.screenshotResults[index];
+    }
+    return { exitCode: 0, result: '' };
+  };
+  return {
+    id: options.id ?? 'fake-sandbox',
+    process: { executeCommand },
+    computerUse: { start },
+    screenshotCallCount: () => callCount,
+  } as unknown as Sandbox & { screenshotCallCount: () => number };
 }
 
 /** Sandbox stub that really runs the command via bash, so the actual curl/mktemp/wc script is exercised. */
@@ -119,6 +147,91 @@ describe('checkComputerUseScreenshot (real curl/mktemp/wc script over loopback H
   it('reports not-ok when Toolbox is entirely unreachable', async () => {
     const result = await checkComputerUseScreenshot(realShellSandbox(), 'http://127.0.0.1:1');
     expect(result.ok).toBe(false);
+  });
+});
+
+describe('ensureComputerUseStarted (superagent-ai/benchpress#38 — start() is never fire-and-forget)', () => {
+  let warnSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    warnSpy.mockRestore();
+  });
+
+  it('calls sandbox.computerUse.start() and returns true immediately when the first screenshot check already succeeds', async () => {
+    const start = vi.fn(async () => ({ message: 'started' }));
+    const sandbox = computerUseStartSandbox({
+      start,
+      screenshotResults: [{ exitCode: 0, result: '54321' }],
+    });
+
+    const ready = await ensureComputerUseStarted(sandbox, { timeoutMs: 200, pollIntervalMs: 10 });
+
+    expect(ready).toBe(true);
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(sandbox.screenshotCallCount()).toBe(1);
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it('polls until the screenshot check succeeds, not just on the first attempt', async () => {
+    const sandbox = computerUseStartSandbox({
+      screenshotResults: [
+        { exitCode: 1, result: '' },
+        { exitCode: 1, result: '' },
+        { exitCode: 0, result: '98765' },
+      ],
+    });
+
+    const ready = await ensureComputerUseStarted(sandbox, { timeoutMs: 500, pollIntervalMs: 5 });
+
+    expect(ready).toBe(true);
+    expect(sandbox.screenshotCallCount()).toBeGreaterThanOrEqual(3);
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it('gives up and warns clearly after the timeout when the desktop never becomes screenshot-ready (fails clearly, does not hang)', async () => {
+    const sandbox = computerUseStartSandbox({
+      screenshotResults: [{ exitCode: 1, result: '' }],
+    });
+
+    const ready = await ensureComputerUseStarted(sandbox, { timeoutMs: 30, pollIntervalMs: 10 });
+
+    expect(ready).toBe(false);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('did not become screenshot-ready'));
+  }, 10_000);
+
+  it('warns and returns false without ever polling when sandbox.computerUse.start() itself throws', async () => {
+    const start = vi.fn(async () => {
+      throw new Error('computer use not supported on this image');
+    });
+    const sandbox = computerUseStartSandbox({
+      start,
+      screenshotResults: [{ exitCode: 0, result: '54321' }],
+    });
+
+    const ready = await ensureComputerUseStarted(sandbox, { timeoutMs: 200, pollIntervalMs: 10 });
+
+    expect(ready).toBe(false);
+    expect(sandbox.screenshotCallCount()).toBe(0);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('computer use not supported on this image'));
+  });
+
+  it('uses the provided baseUrl when checking readiness (real curl against a fixture server)', async () => {
+    const fixture = await startFixtureServer(FAKE_PNG_BYTES);
+    try {
+      const sandbox = { ...realShellSandbox(), computerUse: { start: async () => ({ message: 'started' }) } } as Sandbox;
+      const ready = await ensureComputerUseStarted(sandbox, {
+        baseUrl: fixture.baseUrl,
+        timeoutMs: 200,
+        pollIntervalMs: 10,
+      });
+      expect(ready).toBe(true);
+    } finally {
+      await fixture.close();
+    }
   });
 });
 
