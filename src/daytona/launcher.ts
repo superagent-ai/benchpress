@@ -1,5 +1,5 @@
 import type { Image, Sandbox } from '@daytona/sdk';
-import { ensureComputerUseAssets } from './assets.js';
+import { ensureComputerUseAssets, ensureComputerUseStarted } from './assets.js';
 import { bootstrapAutobrinFlue, prepareRepoTarget, prepareWebappTarget } from './bootstrap.js';
 import {
   applyAutoStopSafetyNet,
@@ -79,6 +79,16 @@ export async function runDaytonaEngagement(options: DaytonaRunOptions): Promise<
     console.error(`Daytona sandbox created: ${sandbox.id}`);
     await applyAutoStopSafetyNet(sandbox);
 
+    // Xvfb/xfce4/x11vnc/novnc are supervised processes that Daytona never starts on its own --
+    // they must be explicitly started via the SDK. Started (and awaited-ready) before bootstrap
+    // so the desktop stack has the most time to come up before anything tries to use it. Skipped
+    // entirely for engagements that already opt out via AUTOBRIN_COMPUTER_USE=none, since start()
+    // has real side effects (spins up processes) unlike the read-only checks in
+    // ensureComputerUseAssets below. See https://github.com/superagent-ai/benchpress/issues/38.
+    if (sandboxEnv.AUTOBRIN_COMPUTER_USE !== 'none') {
+      await ensureComputerUseStarted(sandbox, { baseUrl: sandboxEnv.AUTOBRIN_COMPUTER_USE_BASE_URL });
+    }
+
     await bootstrapAutobrinFlue(sandbox, {
       ref: sandboxEnv.AUTOBRIN_FLUE_REF,
       repository: sandboxEnv.AUTOBRIN_FLUE_REPOSITORY,
@@ -111,6 +121,11 @@ export async function runDaytonaEngagement(options: DaytonaRunOptions): Promise<
       keptSandbox,
     };
   } finally {
+    // No explicit sandbox.computerUse.stop() here: deleting the sandbox already terminates every
+    // supervised process inside it (Xvfb/xfce4/x11vnc/novnc included), so there is nothing left
+    // to release. Calling stop() first would only add another fallible round-trip to the teardown
+    // path for no additional safety, and would be actively wrong for --keep-sandbox, where the
+    // caller wants the desktop to keep running.
     if (sandbox && !options.keepSandbox) {
       try {
         await deleteDaytonaSandbox(sandbox.id, env);
